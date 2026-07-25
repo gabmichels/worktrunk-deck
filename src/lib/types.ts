@@ -68,8 +68,24 @@ export interface DeckConfig {
   theme: Theme;
   /** Display-only cross-repo grouping (REQ-4); off by default. */
   crossRepoGrouping: boolean;
-  /** Per-repo dev command used by the terminal's "Run dev" action, keyed by repo path. */
-  devCommandByRepo?: Record<string, string[]>;
+  /**
+   * Per-repo dev command for the terminal's "Run dev" action, keyed by repo path.
+   *
+   * `cwd` is relative to the **worktree** root, not the repo root — monorepos commonly keep
+   * the dev server in `apps/web` or similar, and each worktree has its own copy of that tree.
+   */
+  devByRepo?: Record<string, DevCommand>;
+  /**
+   * Repos the user has explicitly hidden from the dashboard, by repo path. Kept separate from
+   * the repo list so hiding is reversible without losing configuration.
+   */
+  hiddenRepos?: string[];
+}
+
+export interface DevCommand {
+  command: string[];
+  /** Relative to the worktree root. Empty or absent means the worktree root itself. */
+  cwd?: string;
 }
 
 export const DEFAULT_CONFIG: DeckConfig = {
@@ -80,6 +96,16 @@ export const DEFAULT_CONFIG: DeckConfig = {
   theme: "system",
   crossRepoGrouping: false,
 };
+
+/** One entry of a worktree's history, for the expanded card view. */
+export interface Commit {
+  shortSha: string;
+  sha: string;
+  message: string;
+  author: string;
+  /** Unix seconds, as git reports it. */
+  timestamp: number;
+}
 
 /** Result of a buffered `git-wt` action (merge/remove). */
 export interface CliResult {

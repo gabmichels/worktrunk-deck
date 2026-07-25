@@ -1,4 +1,5 @@
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import { Check } from "lucide-react";
 import type { ComponentProps } from "react";
 
 import { cn } from "@/lib/utils";
@@ -42,6 +43,36 @@ export function DropdownMenuItem({
       )}
       {...props}
     />
+  );
+}
+
+/**
+ * Checkbox row for multi-select menus (repo filter, TASK-18 follow-up). Radix's `CheckboxItem`
+ * handles the `Space`/`Enter` toggle and keeps focus in the menu after a click, which a plain
+ * `<input type="checkbox">` inside a `DropdownMenuItem` would not (NFR-7: keyboard navigable).
+ */
+export function DropdownMenuCheckboxItem({
+  className,
+  children,
+  checked,
+  ...props
+}: ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
+  return (
+    <DropdownMenuPrimitive.CheckboxItem
+      checked={checked}
+      className={cn(
+        "focus:bg-accent focus:text-accent-foreground relative flex cursor-pointer items-center gap-2 rounded-sm py-1.5 pr-2 pl-7 text-[13px] outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:size-3.5",
+        className,
+      )}
+      {...props}
+    >
+      <span className="absolute left-2 flex size-3.5 items-center justify-center">
+        <DropdownMenuPrimitive.ItemIndicator>
+          <Check className="size-3.5" />
+        </DropdownMenuPrimitive.ItemIndicator>
+      </span>
+      {children}
+    </DropdownMenuPrimitive.CheckboxItem>
   );
 }
 

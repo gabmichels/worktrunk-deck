@@ -51,7 +51,26 @@ pub struct DeckConfig {
     pub theme: String,
     pub cross_repo_grouping: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dev_command_by_repo: Option<std::collections::HashMap<String, Vec<String>>>,
+    pub dev_by_repo: Option<std::collections::HashMap<String, DevCommand>>,
+    /// Repos the user hid from the dashboard. Kept apart from `repos` so hiding is reversible
+    /// without losing the configured path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden_repos: Option<Vec<String>>,
+    /// Superseded by [`DeckConfig::dev_by_repo`], read once so an existing config keeps its
+    /// dev commands. Never written back — [`DeckConfig::migrate`] folds it into the new field.
+    #[serde(default, skip_serializing)]
+    dev_command_by_repo: Option<std::collections::HashMap<String, Vec<String>>>,
+}
+
+/// A repo's dev command and where to run it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DevCommand {
+    pub command: Vec<String>,
+    /// Relative to the **worktree** root, not the repo root — monorepos keep the dev server in
+    /// e.g. `apps/web`, and every worktree has its own copy of that tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 impl Default for DeckConfig {
@@ -66,6 +85,8 @@ impl Default for DeckConfig {
             confirm_destructive: default_confirm_destructive(),
             theme: default_theme(),
             cross_repo_grouping: false,
+            dev_by_repo: None,
+            hidden_repos: None,
             dev_command_by_repo: None,
         }
     }
@@ -94,19 +115,68 @@ impl DeckConfig {
                 push(r, &mut out, &mut seen);
             }
         }
+        // Hiding is applied last so it covers explicit entries and scanned ones alike.
+        out.retain(|p| !self.is_hidden(p));
         out
     }
 
-    /// Dev command for a repo, as an argv vector. `None` means the UI should ask.
-    pub fn dev_command_for(&self, repo_path: &str) -> Option<Vec<String>> {
-        let map = self.dev_command_by_repo.as_ref()?;
+    /// Dev command for a repo. `None` means the UI should ask.
+    pub fn dev_for(&self, repo_path: &str) -> Option<DevCommand> {
+        let map = self.dev_by_repo.as_ref()?;
         // Match on the normalized path so `C:\x` and `C:/x` are the same key.
         let want = normalize_key(Path::new(repo_path));
         map.iter()
             .find(|(k, _)| normalize_key(Path::new(k)) == want)
             .map(|(_, v)| v.clone())
-            .filter(|v| !v.is_empty())
+            .filter(|v| !v.command.is_empty())
     }
+
+    /// Folds a config written by an older build into the current shape. Called on load so the
+    /// rest of the code only ever sees `dev_by_repo`.
+    fn migrate(mut self) -> Self {
+        if let Some(legacy) = self.dev_command_by_repo.take() {
+            let map = self.dev_by_repo.get_or_insert_with(Default::default);
+            for (repo, command) in legacy {
+                // A value already written in the new shape wins — it is the newer intent.
+                map.entry(repo).or_insert(DevCommand { command, cwd: None });
+            }
+        }
+        self
+    }
+
+    fn is_hidden(&self, path: &Path) -> bool {
+        let Some(hidden) = self.hidden_repos.as_ref() else {
+            return false;
+        };
+        let want = normalize_key(path);
+        hidden.iter().any(|h| normalize_key(Path::new(h)) == want)
+    }
+}
+
+/// Resolves a dev command's working directory against a worktree.
+///
+/// `cwd` is relative to the **worktree**, never the repo: a monorepo keeps its dev server in
+/// e.g. `apps/web`, and each worktree has its own copy of that subtree — resolving against the
+/// repo root would start the server in the wrong checkout, defeating the isolation worktrunk
+/// exists to provide.
+///
+/// Absolute values and `..` segments are ignored rather than honoured; the settings UI rejects
+/// them, and this is the backstop for a hand-edited config file.
+pub fn resolve_dev_cwd(worktree_path: &str, cwd: Option<&str>) -> String {
+    let Some(rel) = cwd.map(str::trim).filter(|s| !s.is_empty()) else {
+        return worktree_path.to_string();
+    };
+
+    let looks_absolute =
+        rel.starts_with('/') || rel.starts_with('\\') || rel.chars().nth(1) == Some(':');
+    let escapes = rel.split(['/', '\\']).any(|segment| segment == "..");
+    if looks_absolute || escapes {
+        return worktree_path.to_string();
+    }
+
+    let base = worktree_path.trim_end_matches(['/', '\\']);
+    let rel = rel.trim_matches(['/', '\\']).replace('\\', "/");
+    format!("{base}/{rel}")
 }
 
 /// Case- and separator-insensitive path key. Windows paths arrive from worktrunk with `/`
@@ -139,12 +209,14 @@ pub fn load(app: &AppHandle) -> DeckResult<DeckConfig> {
         return Ok(DeckConfig::default());
     }
     let raw = std::fs::read_to_string(&path)?;
-    serde_json::from_str(&raw).map_err(|e| {
-        DeckError::Config(format!(
-            "{} is not valid worktrunk-deck config: {e}",
-            path.display()
-        ))
-    })
+    serde_json::from_str::<DeckConfig>(&raw)
+        .map(DeckConfig::migrate)
+        .map_err(|e| {
+            DeckError::Config(format!(
+                "{} is not valid worktrunk-deck config: {e}",
+                path.display()
+            ))
+        })
 }
 
 pub fn save(app: &AppHandle, config: &DeckConfig) -> DeckResult<()> {
@@ -467,27 +539,129 @@ mod tests {
         assert_eq!(repos.len(), 2);
     }
 
+    fn dev(command: &[&str], cwd: Option<&str>) -> DevCommand {
+        DevCommand {
+            command: command.iter().map(|s| s.to_string()).collect(),
+            cwd: cwd.map(str::to_string),
+        }
+    }
+
     #[test]
     fn dev_command_lookup_is_separator_insensitive() {
         let mut map = std::collections::HashMap::new();
-        map.insert("C:/repos/a".to_string(), vec!["pnpm".into(), "dev".into()]);
+        map.insert(
+            "C:/repos/a".to_string(),
+            dev(&["pnpm", "dev"], Some("apps/web")),
+        );
         let cfg = DeckConfig {
-            dev_command_by_repo: Some(map),
+            dev_by_repo: Some(map),
             ..Default::default()
         };
-        assert!(cfg.dev_command_for(r"C:\repos\a").is_some());
-        assert!(cfg.dev_command_for("C:/repos/other").is_none());
+        let found = cfg
+            .dev_for(r"C:\repos\a")
+            .expect("separator-insensitive lookup");
+        assert_eq!(found.cwd.as_deref(), Some("apps/web"));
+        assert!(cfg.dev_for("C:/repos/other").is_none());
     }
 
     #[test]
     fn empty_dev_command_is_treated_as_unset() {
         let mut map = std::collections::HashMap::new();
-        map.insert("C:/repos/a".to_string(), vec![]);
+        map.insert("C:/repos/a".to_string(), dev(&[], None));
         let cfg = DeckConfig {
-            dev_command_by_repo: Some(map),
+            dev_by_repo: Some(map),
             ..Default::default()
         };
-        assert!(cfg.dev_command_for("C:/repos/a").is_none());
+        assert!(cfg.dev_for("C:/repos/a").is_none());
+    }
+
+    #[test]
+    fn a_legacy_dev_command_map_is_migrated_on_load() {
+        let cfg: DeckConfig = serde_json::from_str(
+            r#"{"repos":[],"devCommandByRepo":{"C:/repos/a":["pnpm","dev"]}}"#,
+        )
+        .unwrap();
+        let migrated = cfg.migrate();
+        let found = migrated
+            .dev_for("C:/repos/a")
+            .expect("legacy command survives");
+        assert_eq!(found.command, vec!["pnpm".to_string(), "dev".to_string()]);
+        assert_eq!(found.cwd, None);
+    }
+
+    #[test]
+    fn a_new_style_entry_wins_over_the_legacy_one() {
+        let cfg: DeckConfig = serde_json::from_str(
+            r#"{"repos":[],
+                "devCommandByRepo":{"C:/repos/a":["old"]},
+                "devByRepo":{"C:/repos/a":{"command":["new"],"cwd":"apps/web"}}}"#,
+        )
+        .unwrap();
+        let found = cfg.migrate().dev_for("C:/repos/a").unwrap();
+        assert_eq!(found.command, vec!["new".to_string()]);
+    }
+
+    #[test]
+    fn dev_cwd_resolves_relative_to_the_worktree() {
+        assert_eq!(
+            resolve_dev_cwd("C:/repos/demo.feat-x", Some("apps/web")),
+            "C:/repos/demo.feat-x/apps/web"
+        );
+        // Backslash separators and a trailing slash are normalized.
+        assert_eq!(
+            resolve_dev_cwd("C:/repos/demo.feat-x/", Some("apps\\web\\")),
+            "C:/repos/demo.feat-x/apps/web"
+        );
+        // A *leading* separator is not normalization territory — on Windows `\apps` is the
+        // drive root, so it is treated as absolute and refused by the test below.
+    }
+
+    #[test]
+    fn dev_cwd_falls_back_to_the_worktree_root_when_unset() {
+        let root = "C:/repos/demo.feat-x";
+        assert_eq!(resolve_dev_cwd(root, None), root);
+        assert_eq!(resolve_dev_cwd(root, Some("")), root);
+        assert_eq!(resolve_dev_cwd(root, Some("   ")), root);
+    }
+
+    /// The settings UI rejects these, but a hand-edited config must not be able to start a dev
+    /// server outside the worktree.
+    #[test]
+    fn dev_cwd_refuses_to_escape_the_worktree() {
+        let root = "C:/repos/demo.feat-x";
+        for bad in [
+            "..",
+            "../..",
+            "apps/../../elsewhere",
+            "/etc",
+            "C:/windows",
+            r"\apps\web",
+            r"\\server\share",
+        ] {
+            assert_eq!(
+                resolve_dev_cwd(root, Some(bad)),
+                root,
+                "{bad} must be ignored"
+            );
+        }
+    }
+
+    #[test]
+    fn hidden_repos_are_dropped_from_the_effective_list() {
+        let cfg = DeckConfig {
+            repos: vec!["C:/repos/a".into(), "C:/repos/b".into()],
+            // Different separators and case must still match on Windows.
+            hidden_repos: Some(vec![r"c:\repos\b".into()]),
+            ..Default::default()
+        };
+        let repos = cfg.effective_repos();
+        if cfg!(windows) {
+            assert_eq!(repos.len(), 1);
+            assert!(repos[0].to_string_lossy().contains('a'));
+        } else {
+            // Case-sensitive elsewhere, so only an exact match hides.
+            assert_eq!(repos.len(), 2);
+        }
     }
 
     #[test]

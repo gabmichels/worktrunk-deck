@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img"
+     aria-label="worktrunk-deck: a trunk branching into worktree panels, one of them live">
+  <title>worktrunk-deck</title>
+
+  <!--
+    The mark is the product in one picture: a trunk (main) on the left, three branches peeling
+    off it (worktrees), and one panel filled green because its dev server is listening — the
+    same live/idle language the cards use. Rounded rectangles rather than circles so it reads
+    as a "deck" of panels instead of a generic git graph.
+
+    Kept to four shapes and two colours: at 32x32 in a taskbar, anything finer turns to mush.
+  -->
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e2433"/>
+      <stop offset="1" stop-color="#11151f"/>
+    </linearGradient>
+    <linearGradient id="live" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4ade80"/>
+      <stop offset="1" stop-color="#22c55e"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="6" y="6" width="500" height="500" rx="106" fill="none"
+        stroke="#ffffff" stroke-opacity="0.08" stroke-width="12"/>
+
+  <g fill="none" stroke="#8b93a7" stroke-width="26"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- The trunk: main, running the full height. -->
+    <path d="M150 104 V400"/>
+    <!-- Three worktrees peeling off it, one per panel. -->
+    <path d="M150 224 C 212 224, 214 168, 276 168"/>
+    <path d="M150 280 H276"/>
+    <path d="M150 336 C 212 336, 214 392, 276 392"/>
+  </g>
+
+  <!-- Trunk head. -->
+  <rect x="118" y="72" width="64" height="64" rx="18" fill="#8b93a7"/>
+
+  <!-- Worktree panels; the middle one is live. -->
+  <rect x="276" y="136" width="146" height="64" rx="18" fill="#3f4657"/>
+  <rect x="276" y="248" width="146" height="64" rx="18" fill="url(#live)"/>
+  <rect x="276" y="360" width="146" height="64" rx="18" fill="#3f4657"/>
+</svg>

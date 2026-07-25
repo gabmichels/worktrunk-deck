@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod error;
 mod external;
+mod git;
 mod gitwt;
 mod process;
 mod pty;
@@ -38,6 +39,7 @@ pub fn run() {
             commands::create_worktree,
             commands::merge_worktree,
             commands::remove_worktree,
+            commands::list_commits,
             commands::open_in_editor,
             commands::open_url,
             commands::run_external,

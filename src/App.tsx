@@ -4,7 +4,7 @@ import { Toaster } from "sonner";
 
 import { CliLogPanel } from "@/components/CliLogPanel";
 import { FeatureGroup } from "@/components/FeatureGroup";
-import { FilterBar } from "@/components/FilterBar";
+import { FilterBar, type RepoChoice, type RepoSelection } from "@/components/FilterBar";
 import { FirstRunGate } from "@/components/FirstRunGate";
 import { Header } from "@/components/Header";
 import { HelpModal } from "@/components/HelpModal";
@@ -35,7 +35,7 @@ export default function App() {
 }
 
 function Deck() {
-  const { config, loaded, gitWt, reload } = useConfig();
+  const { config, loaded, gitWt, reload, update } = useConfig();
   useTheme(config.theme);
 
   // The gate owns setup; the dashboard only renders once there is something to show and a
@@ -47,6 +47,8 @@ function Deck() {
 
   const [filter, setFilter] = useState("");
   const [runningOnly, setRunningOnly] = useState(false);
+  /** `null` = every repo, including any discovered later (see FilterBar). */
+  const [selectedRepos, setSelectedRepos] = useState<RepoSelection>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
@@ -60,13 +62,33 @@ function Deck() {
     [snapshot],
   );
 
-  const visible = useMemo(
+  const visible = useMemo(() => {
+    const allowed = selectedRepos === null ? null : new Set(selectedRepos);
+    return everyWorktree.filter(
+      (w) =>
+        matchesFilter(w, filter) &&
+        (!runningOnly || w.urlActive) &&
+        (allowed === null || allowed.has(w.repoPath)),
+    );
+  }, [everyWorktree, filter, runningOnly, selectedRepos]);
+
+  /** Repo choices for the filter dropdown, with each repo's worktree count. */
+  const repoChoices = useMemo<RepoChoice[]>(
     () =>
-      everyWorktree.filter(
-        (w) => matchesFilter(w, filter) && (!runningOnly || w.urlActive),
-      ),
-    [everyWorktree, filter, runningOnly],
+      (snapshot?.repos ?? []).map((r) => ({
+        repo: r.repo,
+        repoPath: r.repoPath,
+        count: r.worktrees.length,
+      })),
+    [snapshot],
   );
+
+  /** Hiding is a config change, so it survives restarts (unlike the filter above). */
+  const hideRepo = (repoPath: string) => {
+    const hidden = config.hiddenRepos ?? [];
+    if (hidden.includes(repoPath)) return;
+    void update({ hiddenRepos: [...hidden, repoPath] }).then(() => refresh());
+  };
 
   /** Opening a terminal should reveal the sidebar — otherwise the tab appears nowhere. */
   const openTerminal = (w: Worktree) => {
@@ -76,6 +98,10 @@ function Deck() {
   const runDev = (w: Worktree) => {
     setTerminalOpen(true);
     void terminals.runDev(w);
+  };
+  const openTerminalAt = (path: string) => {
+    setTerminalOpen(true);
+    void terminals.openTerminalAtPath(path);
   };
 
   const renderActions = (w: Worktree) => (
@@ -115,6 +141,9 @@ function Deck() {
         onChange={setFilter}
         matchCount={visible.length}
         totalCount={everyWorktree.length}
+        repos={repoChoices}
+        selectedRepoPaths={selectedRepos}
+        onSelectedRepoPathsChange={setSelectedRepos}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -135,7 +164,16 @@ function Deck() {
                   (w) => visibleSet.has(keyOf(w)) && !grouped.has(keyOf(w)),
                 );
                 if (repo.load === "ok" && rows.length === 0) return null;
-                return <RepoSection key={repo.repoPath} repo={repo} worktrees={rows} renderActions={renderActions} />;
+                return (
+                  <RepoSection
+                    key={repo.repoPath}
+                    repo={repo}
+                    worktrees={rows}
+                    renderActions={renderActions}
+                    onOpenTerminalAt={openTerminalAt}
+                    onHideRepo={hideRepo}
+                  />
+                );
               })}
 
               {/* Worktrees not part of any tracked feature, so nothing is invisible (REQ-9). */}

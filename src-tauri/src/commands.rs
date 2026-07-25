@@ -9,6 +9,7 @@ use tauri::{AppHandle, State};
 use crate::config::{self, DeckConfig, GitWtResolution, RootValidation};
 use crate::error::DeckResult;
 use crate::external;
+use crate::git;
 use crate::gitwt::{self, CliResult, RawSnapshot, Subcommand};
 use crate::pty::{self, PtyRegistry};
 
@@ -147,6 +148,20 @@ pub async fn remove_worktree(
     .await
 }
 
+/* ----------------------------------------------------------------- history */
+
+/// One page of a worktree's commit history, for the expanded card.
+///
+/// The only `git` call in the app; see `git.rs` for why it is safe to have exactly one.
+#[tauri::command]
+pub async fn list_commits(
+    worktree_path: String,
+    skip: u32,
+    limit: u32,
+) -> DeckResult<Vec<git::Commit>> {
+    git::log(std::path::Path::new(&worktree_path), skip, limit).await
+}
+
 /* ------------------------------------------------------------- open / launch */
 
 #[tauri::command]
@@ -163,10 +178,16 @@ pub fn open_url(url: String) -> DeckResult<()> {
 #[tauri::command]
 pub fn run_external(app: AppHandle, repo_path: String, worktree_path: String) -> DeckResult<()> {
     let cfg = config::load(&app)?;
-    let dev = cfg.dev_command_for(&repo_path);
+    let dev = cfg.dev_for(&repo_path);
+
+    // Honour the configured working directory here too, so "Run externally" and the integrated
+    // terminal start the server in the same place — a monorepo's dev command lives in a
+    // subdirectory of the worktree, not at its root.
+    let dir = config::resolve_dev_cwd(&worktree_path, dev.as_ref().and_then(|d| d.cwd.as_deref()));
+
     external::run_external(
-        &worktree_path,
-        dev.as_deref(),
+        &dir,
+        dev.as_ref().map(|d| d.command.as_slice()),
         cfg.external_terminal.as_deref(),
     )
 }

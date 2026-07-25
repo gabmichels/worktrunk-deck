@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfig } from "@/hooks/useConfig";
 import { onPtyExit, ptyKill, ptyOpen } from "@/lib/ipc";
-import type { SessionId, Worktree } from "@/lib/types";
+import type { DevCommand, SessionId, Worktree } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { TerminalTab } from "./TerminalTab";
@@ -40,25 +40,43 @@ export interface TerminalSession {
 }
 
 /**
- * `devCommandByRepo` is keyed by whatever path shape the config author typed. worktrunk always
- * emits forward-slash paths on Windows (plan §3.2), but a human editing the config JSON by hand
- * might paste a backslash path from Explorer, and drive letters can vary in case — so match
+ * `devByRepo` is keyed by whatever path shape the config author typed. worktrunk always emits
+ * forward-slash paths on Windows (plan §3.2), but a human editing the config JSON by hand might
+ * paste a backslash path from Explorer, and drive letters can vary in case — so match
  * case-insensitively after normalizing separators rather than requiring an exact string match.
  */
 function normalizePath(p: string): string {
   return p.replace(/\\/g, "/").toLowerCase();
 }
 
-function lookupDevCommand(
-  devCommandByRepo: Record<string, string[]> | undefined,
+function lookupDev(
+  devByRepo: Record<string, DevCommand> | undefined,
   repoPath: string,
-): string[] | undefined {
-  if (!devCommandByRepo) return undefined;
+): DevCommand | undefined {
+  if (!devByRepo) return undefined;
   const target = normalizePath(repoPath);
-  for (const [key, cmd] of Object.entries(devCommandByRepo)) {
-    if (normalizePath(key) === target) return cmd;
+  for (const [key, dev] of Object.entries(devByRepo)) {
+    if (normalizePath(key) === target) return dev;
   }
   return undefined;
+}
+
+/**
+ * Resolves a dev command's working directory against the worktree.
+ *
+ * `cwd` is relative to the **worktree**, not the repo: a monorepo keeps its dev server in e.g.
+ * `apps/web`, and every worktree has its own copy of that subtree — resolving against the repo
+ * root would start the server in the wrong checkout, which is exactly the isolation worktrunk
+ * exists to provide.
+ */
+function devCwd(worktreePath: string, cwd?: string): string {
+  const rel = cwd?.trim().replace(/^[/\\]+|[/\\]+$/g, "");
+  if (!rel) return worktreePath;
+  return `${worktreePath.replace(/[/\\]+$/, "")}/${rel.replace(/\\/g, "/")}`;
+}
+
+function basename(path: string): string {
+  return path.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || path;
 }
 
 function titleFor(w: Worktree, kind: "shell" | "dev"): string {
@@ -89,14 +107,15 @@ export function useTerminalSessions() {
   }, []);
 
   const openSession = useCallback(
-    async (w: Worktree, kind: "shell" | "dev", cmd?: string[]) => {
-      const id = await ptyOpen(w.path, cmd);
+    async (w: Worktree, kind: "shell" | "dev", cmd?: string[], cwd?: string) => {
+      const dir = cwd ?? w.path;
+      const id = await ptyOpen(dir, cmd);
       setSessions((prev) => [
         ...prev,
         {
           id,
           title: titleFor(w, kind),
-          cwd: w.path,
+          cwd: dir,
           worktreePath: w.path,
           repoPath: w.repoPath,
           kind,
@@ -111,17 +130,41 @@ export function useTerminalSessions() {
 
   const openTerminal = useCallback((w: Worktree) => openSession(w, "shell"), [openSession]);
 
+  /**
+   * Opens a shell at a bare filesystem path. Needed for repos the deck could not read — there
+   * is no `Worktree` to hand over, but that is exactly when the user most needs a prompt there
+   * (e.g. to run the `safe.directory` fix themselves rather than have the app do it, NFR-3).
+   */
+  const openTerminalAtPath = useCallback(async (path: string) => {
+    const id = await ptyOpen(path);
+    setSessions((prev) => [
+      ...prev,
+      {
+        id,
+        title: basename(path),
+        cwd: path,
+        worktreePath: path,
+        repoPath: path,
+        kind: "shell",
+        exited: false,
+        exitCode: null,
+      },
+    ]);
+    setActiveId(id);
+  }, []);
+
   const runDev = useCallback(
     async (w: Worktree, cmdOverride?: string[]) => {
-      const cmd = cmdOverride ?? lookupDevCommand(config.devCommandByRepo, w.repoPath);
+      const dev = lookupDev(config.devByRepo, w.repoPath);
+      const cmd = cmdOverride ?? dev?.command;
       if (!cmd || cmd.length === 0) {
         // No configured command for this repo — ask instead of guessing (spec: don't guess).
         setPendingDevPrompt(w);
         return;
       }
-      await openSession(w, "dev", cmd);
+      await openSession(w, "dev", cmd, devCwd(w.path, dev?.cwd));
     },
-    [config.devCommandByRepo, openSession],
+    [config.devByRepo, openSession],
   );
 
   const closeSession = useCallback(
@@ -158,6 +201,7 @@ export function useTerminalSessions() {
     activeId,
     setActiveId,
     openTerminal,
+    openTerminalAtPath,
     runDev,
     closeSession,
     closeAll,

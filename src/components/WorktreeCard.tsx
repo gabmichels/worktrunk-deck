@@ -5,10 +5,13 @@
  * live/not-live dot are `url` / `url_active` from `git-wt list`; the deck never probes ports or
  * computes them itself (spec Non-goals).
  */
-import type { ReactNode } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import { useState } from "react";
 
+import { CommitList } from "@/components/CommitList";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useCommits } from "@/hooks/useCommits";
 import type { Worktree } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -21,21 +24,60 @@ export function WorktreeCard({
   actions?: ReactNode;
 }) {
   const w = worktree;
+  const [expanded, setExpanded] = useState(false);
+  // Lives at this level (not inside CommitList) so collapsing and re-expanding reuses the
+  // already-fetched pages instead of refetching — CommitList only ever mounts while expanded.
+  const commits = useCommits(w.path);
+
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next) commits.ensureLoaded();
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Enter/Space activate the card like a button (NFR-7); Space's default is page scroll, so
+    // it must be prevented here rather than left to the browser.
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  };
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
+      onClick={toggle}
+      onKeyDown={onKeyDown}
       className={cn(
-        "border-border bg-card group grid items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2",
-        "grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(12rem,2fr)_5.5rem_5rem_minmax(0,3fr)_auto_auto]",
-        "hover:border-ring/40 transition-colors",
+        "border-border bg-card group rounded-lg border px-3 py-2",
+        "hover:border-ring/40 cursor-pointer transition-colors",
       )}
     >
-      <BranchCell worktree={w} />
-      <GitCell worktree={w} />
-      <AheadBehindCell worktree={w} />
-      <HeadCell worktree={w} />
-      <PortCell worktree={w} />
-      <div className="flex items-center justify-end gap-0.5">{actions}</div>
+      <div
+        className={cn(
+          "grid items-center gap-x-4 gap-y-1",
+          "grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(12rem,2fr)_5.5rem_5rem_minmax(0,3fr)_auto_auto]",
+        )}
+      >
+        <BranchCell worktree={w} />
+        <GitCell worktree={w} />
+        <AheadBehindCell worktree={w} />
+        <HeadCell worktree={w} />
+        <PortCell worktree={w} />
+        {/* Actions live inside their own click-stopping wrapper — the menu and any links must
+            act on the worktree, not toggle the card's expansion out from under the user. */}
+        <div
+          className="flex items-center justify-end gap-0.5"
+          onClick={(e: MouseEvent) => e.stopPropagation()}
+        >
+          {actions}
+        </div>
+      </div>
+
+      {expanded && <CommitList state={commits} />}
     </div>
   );
 }

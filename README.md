@@ -109,6 +109,14 @@ need no network.
 The `git-wt` JSON fixtures in [`test/fixtures/`](./test/fixtures/) are real, sanitized
 worktrunk output; see that directory's README for how to re-capture them.
 
+The app icon's source of truth is [`docs/icon.svg`](./docs/icon.svg). To regenerate the
+platform icon set after editing it:
+
+```sh
+pnpm dlx sharp-cli -i docs/icon.svg -o docs/icon-1024.png resize 1024 1024
+pnpm tauri icon docs/icon-1024.png
+```
+
 **Architecture in one line:** a Rust broker (`src-tauri/src/gitwt.rs`) invokes an allowlisted
 set of `git-wt` subcommands per repo in parallel, and `src/lib/adapter.ts` normalizes the raw
 JSON into the types the React UI renders. No worktree or port logic lives in this app.
@@ -117,6 +125,13 @@ JSON into the types the React UI renders. No worktree or port logic lives in thi
 
 - **Only four `git-wt` subcommands** may ever be spawned — `list`, `switch`, `merge`,
   `remove` — enforced in Rust. The webview cannot spawn processes at all.
+- **Exactly one call to `git` itself**, in `src-tauri/src/git.rs`: a read-only `git log` for the
+  expanded card's commit history, which worktrunk has no subcommand for. Every flag is a fixed
+  literal, the caller supplies only a path and two integers, and `--` terminates the argument
+  list. No code path there can write to a repository.
+- **The app never runs a fix on your behalf.** When a repo fails with git's "dubious ownership"
+  error, the deck shows the exact `git config --global --add safe.directory …` command with a
+  copy button and offers a terminal — it does not execute it.
 - **A failed refresh never blanks the view.** The last good snapshot stays on screen with a
   staleness indicator.
 - **One unreadable repo never breaks the others.** It renders as an inline error card.

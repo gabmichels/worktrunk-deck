@@ -21,8 +21,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { useConfig } from "@/hooks/useConfig";
 import * as ipc from "@/lib/ipc";
-import type { DeckConfig, RootValidation, Theme } from "@/lib/types";
+import type { DeckConfig, DevCommand, RootValidation, Theme } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/** Rejects anything that could let a dev-server `cwd` escape the worktree it belongs to. */
+function validateCwd(cwd: string): string | null {
+  if (!cwd) return null;
+  if (/^([a-zA-Z]:)?[\\/]/.test(cwd)) return "Must be relative to the worktree root, not absolute.";
+  if (cwd.split(/[\\/]/).includes("..")) return "Must stay inside the worktree — \"..\" is not allowed.";
+  return null;
+}
 
 /** Debounce for live `validate_root` calls so every keystroke doesn't spawn a probe (REQ-13). */
 const VALIDATE_DEBOUNCE_MS = 400;
@@ -68,6 +76,17 @@ export function SettingsModal({
     setDraft((d) => ({ ...d, ...next }));
   }
 
+  // Repos to offer dev-command editing for: every configured repo, plus any devByRepo entry
+  // left over from a repo removed above but not yet saved — so it stays visible and editable
+  // (e.g. to clear it) rather than silently vanishing.
+  const devCommandRepos = Array.from(
+    new Set([...draft.repos, ...Object.keys(draft.devByRepo ?? {})]),
+  );
+
+  const hasInvalidCwd = Object.values(draft.devByRepo ?? {}).some(
+    (d) => validateCwd(d.cwd ?? "") !== null,
+  );
+
   async function handleSave() {
     setSaving(true);
     try {
@@ -98,6 +117,22 @@ export function SettingsModal({
 
   function removeRepo(path: string) {
     patch({ repos: draft.repos.filter((r) => r !== path) });
+  }
+
+  // Free-text command input, split on spaces into argv, keyed by repo path so the parsed
+  // preview below can show exactly what will be executed (quoting surprises included).
+  function setDevCommandText(repoPath: string, text: string) {
+    const command = text.trim().length > 0 ? text.trim().split(/\s+/) : [];
+    const existing = draft.devByRepo?.[repoPath];
+    const next: DevCommand = { ...existing, command };
+    patch({ devByRepo: { ...draft.devByRepo, [repoPath]: next } });
+  }
+
+  function setDevCwd(repoPath: string, cwd: string) {
+    const existing = draft.devByRepo?.[repoPath] ?? { command: [] };
+    patch({
+      devByRepo: { ...draft.devByRepo, [repoPath]: { ...existing, cwd: cwd || undefined } },
+    });
   }
 
   return (
@@ -198,6 +233,71 @@ export function SettingsModal({
                     ? `Workspace OK — ${rootValidation.repoCount} repos found`
                     : (rootValidation?.error ?? "Not checked yet")}
               </p>
+            )}
+          </section>
+
+          {/* Dev commands — per-repo "Run dev" command + cwd, keyed by repo path. Offered for
+              every configured repo plus any leftover devByRepo entries (e.g. a repo just
+              removed above but not yet saved), so a stale entry is visible and removable. */}
+          <section className="space-y-2">
+            <Label>Dev commands</Label>
+            <p className="text-muted-foreground text-[11px]">
+              Command to run for this repo's "Run dev" action. Working directory is relative to
+              the worktree, not the repo root — leave blank for the worktree root itself.
+            </p>
+            {devCommandRepos.length === 0 ? (
+              <p className="text-muted-foreground text-[11px]">Add a repository above first.</p>
+            ) : (
+              <ul className="space-y-2">
+                {devCommandRepos.map((repoPath) => {
+                  const dev = draft.devByRepo?.[repoPath];
+                  const commandText = (dev?.command ?? []).join(" ");
+                  const cwdError = validateCwd(dev?.cwd ?? "");
+                  return (
+                    <li
+                      key={repoPath}
+                      className="border-border bg-background space-y-1.5 rounded-md border px-2 py-1.5"
+                    >
+                      <span
+                        className="text-muted-foreground block truncate font-mono text-[11px]"
+                        title={repoPath}
+                      >
+                        {repoPath}
+                      </span>
+                      <div className="space-y-1">
+                        <Input
+                          value={commandText}
+                          onChange={(e) => setDevCommandText(repoPath, e.target.value)}
+                          placeholder="pnpm dev"
+                          className="font-mono text-[12px]"
+                          aria-label={`Dev command for ${repoPath}`}
+                        />
+                        {dev && dev.command.length > 0 && (
+                          <p className="text-muted-foreground font-mono text-[11px]">
+                            argv: [{dev.command.map((a) => `"${a}"`).join(", ")}]
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <Input
+                          value={dev?.cwd ?? ""}
+                          onChange={(e) => setDevCwd(repoPath, e.target.value)}
+                          placeholder="Relative to worktree root, e.g. apps/web (blank = worktree root)"
+                          className="font-mono text-[12px]"
+                          aria-label={`Dev working directory for ${repoPath}`}
+                        />
+                        {cwdError ? (
+                          <p className="text-destructive text-[11px]">{cwdError}</p>
+                        ) : (
+                          <p className="text-muted-foreground font-mono text-[11px]">
+                            {`<worktree>${dev?.cwd ? `/${dev.cwd}` : ""}`}
+                          </p>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </section>
 
@@ -307,7 +407,7 @@ export function SettingsModal({
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button size="sm" onClick={() => void handleSave()} disabled={saving}>
+          <Button size="sm" onClick={() => void handleSave()} disabled={saving || hasInvalidCwd}>
             {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>

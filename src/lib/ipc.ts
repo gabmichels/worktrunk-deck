@@ -5,6 +5,7 @@
  * JSON, or the Rust side drifts from these types, we fail loudly here with a readable message
  * instead of rendering `undefined` somewhere deep in the tree (NFR-6, spec Q3).
  */
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { z } from "zod";
@@ -12,6 +13,7 @@ import type {
   CliLogEndEvent,
   CliLogEvent,
   CliResult,
+  Commit,
   DeckConfig,
   GitWtResolution,
   PtyExitEvent,
@@ -46,6 +48,11 @@ const RawSnapshotSchema = z.object({
 export type RawRepoResult = z.infer<typeof RawRepoResultSchema>;
 export type RawSnapshot = z.infer<typeof RawSnapshotSchema>;
 
+const DevCommandSchema = z.object({
+  command: z.array(z.string()),
+  cwd: z.string().optional(),
+});
+
 const DeckConfigSchema = z.object({
   version: z.literal(1),
   repos: z.array(z.string()),
@@ -56,7 +63,16 @@ const DeckConfigSchema = z.object({
   confirmDestructive: z.boolean(),
   theme: z.enum(["system", "light", "dark"]),
   crossRepoGrouping: z.boolean(),
-  devCommandByRepo: z.record(z.string(), z.array(z.string())).optional(),
+  devByRepo: z.record(z.string(), DevCommandSchema).optional(),
+  hiddenRepos: z.array(z.string()).optional(),
+});
+
+const CommitSchema = z.object({
+  shortSha: z.string(),
+  sha: z.string(),
+  message: z.string(),
+  author: z.string(),
+  timestamp: z.number(),
 });
 
 const CliResultSchema = z.object({
@@ -170,6 +186,21 @@ export function removeWorktree(
   return call("remove_worktree", CliResultSchema, { repoPath, branch, force });
 }
 
+/**
+ * Reads a worktree's history for the expanded card (read-only `git log`).
+ *
+ * This is the one place the deck calls `git` rather than `git-wt` — worktrunk has no log
+ * subcommand. The backend fixes every argument except the path and the two numbers, and the
+ * call can only ever read (see `git.rs`).
+ */
+export function listCommits(
+  worktreePath: string,
+  skip: number,
+  limit: number,
+): Promise<Commit[]> {
+  return call("list_commits", z.array(CommitSchema), { worktreePath, skip, limit });
+}
+
 export function openInEditor(path: string): Promise<void> {
   return invoke("open_in_editor", { path });
 }
@@ -221,6 +252,11 @@ export function validateRoot(path: string): Promise<RootValidation> {
 /** Locates the `git-wt` binary and reports its version, or why it could not be found. */
 export function resolveGitWt(): Promise<GitWtResolution> {
   return call("resolve_gitwt", GitWtResolutionSchema);
+}
+
+/** The deck's own version, from the built app rather than a duplicated constant. */
+export function appVersion(): Promise<string> {
+  return getVersion();
 }
 
 /* ------------------------------------------------------------------ events */

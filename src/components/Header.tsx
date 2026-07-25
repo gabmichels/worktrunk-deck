@@ -4,9 +4,11 @@
  * than reaching for the text filter.
  */
 import { CircleHelp, Plus, RefreshCw, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { appVersion } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
 export function Header({
@@ -32,10 +34,20 @@ export function Header({
   onOpenSettings: () => void;
   onOpenHelp: () => void;
 }) {
+  // Fetched once on mount rather than passed as a prop — it never changes for the life of the
+  // running app, so it doesn't need to live in App.tsx's state.
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    void appVersion().then(setVersion);
+  }, []);
+
   return (
     <header className="border-border bg-card flex h-11 shrink-0 items-center gap-3 border-b px-3">
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-baseline gap-1.5">
         <span className="font-mono text-[13px] font-semibold">worktrunk-deck</span>
+        {version && (
+          <span className="text-muted-foreground font-mono text-[11px]">v{version}</span>
+        )}
       </div>
 
       <button
