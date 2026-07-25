@@ -8,8 +8,12 @@ use std::path::Path;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+// `mut` is only needed by the Windows-only `creation_flags` call below, so on every other
+// platform it is an unused-mut error under `-D warnings`.
+
 /// A blocking `std::process::Command` that stays invisible on Windows.
 pub fn command(program: impl AsRef<Path>) -> std::process::Command {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut cmd = std::process::Command::new(program.as_ref());
     #[cfg(windows)]
     {
@@ -21,6 +25,7 @@ pub fn command(program: impl AsRef<Path>) -> std::process::Command {
 
 /// The async equivalent, used for the parallel per-repo fan-out (NFR-4/5).
 pub fn async_command(program: impl AsRef<Path>) -> tokio::process::Command {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut cmd = tokio::process::Command::new(program.as_ref());
     #[cfg(windows)]
     {
