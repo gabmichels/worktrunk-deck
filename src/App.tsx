@@ -3,6 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useMemo, useState } from "react";
 import { Toaster } from "sonner";
 
+import { BusyBar } from "@/components/BusyBar";
 import { CliLogPanel } from "@/components/CliLogPanel";
 import { FeatureGroup } from "@/components/FeatureGroup";
 import { FilterBar, type RepoChoice, type RepoSelection } from "@/components/FilterBar";
@@ -16,6 +17,7 @@ import { SettingsModal } from "@/components/SettingsModal";
 import { TerminalSidebar, useTerminalSessions } from "@/components/TerminalSidebar";
 import { WorktreeActions } from "@/components/WorktreeActions";
 import { useCliRun } from "@/hooks/useCliRun";
+import { BusyProvider, useBusy } from "@/hooks/useBusy";
 import { ConfigProvider, useConfig } from "@/hooks/useConfig";
 import { useTheme } from "@/hooks/useTheme";
 import { useWorktrees } from "@/hooks/useWorktrees";
@@ -27,16 +29,22 @@ import { cn } from "@/lib/utils";
 export default function App() {
   return (
     <ConfigProvider>
-      <TooltipProvider delayDuration={300}>
-        <Deck />
-        <Toaster position="bottom-right" closeButton theme="system" />
-      </TooltipProvider>
+      <BusyProvider>
+        <TooltipProvider delayDuration={300}>
+          <div className="relative h-full">
+            <BusyBar />
+            <Deck />
+          </div>
+          <Toaster position="bottom-right" closeButton theme="system" />
+        </TooltipProvider>
+      </BusyProvider>
     </ConfigProvider>
   );
 }
 
 function Deck() {
   const { config, loaded, gitWt, reload, update } = useConfig();
+  const { track } = useBusy();
   useTheme(config.theme);
 
   // The gate owns setup; the dashboard only renders once there is something to show and a
@@ -93,10 +101,15 @@ function Deck() {
     // Any repo-level filter refers to the old folder's repos, so it would silently hide
     // everything in the new one.
     setSelectedRepos(null);
-    void update({ scanRoot: next }).then(() => refresh());
+    void track(`Opening ${next}`, async () => {
+      await update({ scanRoot: next });
+      await refresh();
+    });
   };
 
   const pickFolder = async () => {
+    // The picker itself is not tracked — it is a modal OS dialog, so the user already knows
+    // the app is waiting on them.
     const chosen = await openDialog({
       directory: true,
       multiple: false,
@@ -120,21 +133,26 @@ function Deck() {
   const hideRepo = (repoPath: string) => {
     const hidden = config.hiddenRepos ?? [];
     if (hidden.includes(repoPath)) return;
-    void update({ hiddenRepos: [...hidden, repoPath] }).then(() => refresh());
+    void track("Hiding repository", async () => {
+      await update({ hiddenRepos: [...hidden, repoPath] });
+      await refresh();
+    });
   };
 
   /** Opening a terminal should reveal the sidebar — otherwise the tab appears nowhere. */
+  // Spawning a PTY is usually instant but can stall briefly on a cold shell profile, which
+  // would otherwise look like the click did nothing.
   const openTerminal = (w: Worktree) => {
     setTerminalOpen(true);
-    void terminals.openTerminal(w);
+    void track("Opening terminal", () => terminals.openTerminal(w));
   };
   const runDev = (w: Worktree) => {
     setTerminalOpen(true);
-    void terminals.runDev(w);
+    void track("Starting dev server", () => terminals.runDev(w));
   };
   const openTerminalAt = (path: string) => {
     setTerminalOpen(true);
-    void terminals.openTerminalAtPath(path);
+    void track("Opening terminal", () => terminals.openTerminalAtPath(path));
   };
 
   const renderActions = (w: Worktree) => (
@@ -163,7 +181,7 @@ function Deck() {
         isStale={isStale}
         runningOnly={runningOnly}
         onToggleRunningOnly={() => setRunningOnly((v) => !v)}
-        onRefresh={() => void refresh()}
+        onRefresh={() => void track("Refreshing", refresh)}
         onNewWorktree={() => setNewOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenHelp={() => setHelpOpen(true)}

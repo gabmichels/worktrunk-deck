@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useBusy } from "@/hooks/useBusy";
 import { useConfig } from "@/hooks/useConfig";
 import * as ipc from "@/lib/ipc";
 import type { DeckConfig, DevCommand, RootValidation, Theme } from "@/lib/types";
@@ -43,6 +44,7 @@ export function SettingsModal({
   onOpenChange: (o: boolean) => void;
 }) {
   const { config, gitWt, save } = useConfig();
+  const { track } = useBusy();
   const [draft, setDraft] = useState<DeckConfig>(config);
   const [newRepoPath, setNewRepoPath] = useState("");
   const [rootValidation, setRootValidation] = useState<RootValidation | null>(null);
@@ -92,7 +94,9 @@ export function SettingsModal({
   async function handleSave() {
     setSaving(true);
     try {
-      await save(draft);
+      // Saving also re-probes `git-wt`, which spawns a process — slow enough to be worth the
+      // global indicator, not just the button's own disabled state.
+      await track("Saving settings", () => save(draft));
       onOpenChange(false);
     } finally {
       setSaving(false);

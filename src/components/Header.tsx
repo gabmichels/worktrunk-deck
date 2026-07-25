@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useBusy } from "@/hooks/useBusy";
 import { appVersion } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +45,7 @@ export function Header({
 }) {
   // Fetched once on mount rather than passed as a prop — it never changes for the life of the
   // running app, so it doesn't need to live in App.tsx's state.
+  const { busy } = useBusy();
   const [version, setVersion] = useState<string | null>(null);
   useEffect(() => {
     void appVersion().then(setVersion);
@@ -83,7 +85,7 @@ export function Header({
             aria-label="Refresh"
             className={cn(isStale && "text-warn")}
           >
-            <RefreshCw className="size-3.5" />
+            <RefreshCw className={cn("size-3.5", busy && "animate-spin")} />
           </Button>
         </Tooltip>
         <span className="text-muted-foreground text-[11px]" aria-live="polite">
