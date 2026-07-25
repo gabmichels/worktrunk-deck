@@ -72,7 +72,13 @@ const RootValidationSchema = z.object({
 });
 
 const GitWtResolutionSchema = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true), path: z.string(), version: z.string() }),
+  z.object({
+    ok: z.literal(true),
+    path: z.string(),
+    version: z.string(),
+    /** Present when worktrunk is older than the version this build targets (spec Q3). */
+    warning: z.string().optional(),
+  }),
   z.object({ ok: z.literal(false), error: z.string() }),
 ]);
 

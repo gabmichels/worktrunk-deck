@@ -78,7 +78,7 @@ impl DeckConfig {
         let mut out: Vec<PathBuf> = Vec::new();
         let mut seen = std::collections::HashSet::new();
 
-        let mut push = |p: PathBuf, out: &mut Vec<PathBuf>, seen: &mut std::collections::HashSet<String>| {
+        let push = |p: PathBuf, out: &mut Vec<PathBuf>, seen: &mut std::collections::HashSet<String>| {
             let key = normalize_key(&p);
             if seen.insert(key) {
                 out.push(p);
@@ -234,12 +234,18 @@ pub fn validate_root(path: &str) -> RootValidation {
 /* ------------------------------------------------------- git-wt resolution */
 
 #[derive(Debug, Serialize)]
-#[serde(untagged)]
+#[serde(untagged, rename_all = "camelCase")]
 pub enum GitWtResolution {
     Found {
         ok: bool,
         path: String,
         version: String,
+        /// Set when worktrunk is older than [`MIN_GITWT_VERSION`]. Deliberately a warning and
+        /// not an error: the adapter tolerates unknown and missing fields, so an older
+        /// worktrunk usually still works. Blocking the whole app over a version string would
+        /// be worse than telling the user what to expect (spec Q3).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        warning: Option<String>,
     },
     Missing {
         ok: bool,
@@ -249,15 +255,48 @@ pub enum GitWtResolution {
 
 impl GitWtResolution {
     fn found(path: String, version: String) -> Self {
+        let warning = version_warning(&version);
         Self::Found {
             ok: true,
             path,
             version,
+            warning,
         }
     }
     fn missing(error: String) -> Self {
         Self::Missing { ok: false, error }
     }
+}
+
+/// Extracts a `(major, minor, patch)` triple from a version banner like `wt v0.60.0`.
+///
+/// Returns `None` when nothing version-shaped is present, in which case we say nothing rather
+/// than crying wolf about a binary we simply could not parse.
+fn parse_version(banner: &str) -> Option<(u32, u32, u32)> {
+    let start = banner.find(|c: char| c.is_ascii_digit())?;
+    let rest = &banner[start..];
+    let end = rest
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(rest.len());
+    let mut parts = rest[..end].split('.').map(str::parse::<u32>);
+    Some((
+        parts.next()?.ok()?,
+        parts.next().and_then(Result::ok).unwrap_or(0),
+        parts.next().and_then(Result::ok).unwrap_or(0),
+    ))
+}
+
+fn version_warning(banner: &str) -> Option<String> {
+    let found = parse_version(banner)?;
+    let minimum = parse_version(MIN_GITWT_VERSION)?;
+    (found < minimum).then(|| {
+        format!(
+            "worktrunk {} is older than the {} this build was written against. \
+             The dashboard should still work, but some columns may be missing or wrong.",
+            banner.trim(),
+            MIN_GITWT_VERSION
+        )
+    })
 }
 
 const BIN: &str = if cfg!(windows) { "git-wt.exe" } else { "git-wt" };
@@ -494,6 +533,25 @@ mod tests {
         assert_eq!(cfg.repos.len(), 1);
         assert!(cfg.confirm_destructive);
         assert_eq!(cfg.auto_refresh_ms, 5_000);
+    }
+
+    #[test]
+    fn version_banners_are_parsed_from_worktrunks_real_output() {
+        // This is exactly what `git-wt --version` prints.
+        assert_eq!(parse_version("wt v0.60.0"), Some((0, 60, 0)));
+        assert_eq!(parse_version("0.61"), Some((0, 61, 0)));
+        assert_eq!(parse_version("git-wt 1.2.3-beta"), Some((1, 2, 3)));
+        assert_eq!(parse_version("no version here"), None);
+    }
+
+    #[test]
+    fn only_versions_below_the_minimum_warn() {
+        assert!(version_warning("wt v0.59.9").is_some());
+        assert!(version_warning("wt v0.60.0").is_none());
+        assert!(version_warning("wt v0.61.0").is_none());
+        assert!(version_warning("wt v1.0.0").is_none());
+        // An unparseable banner must not produce a spurious warning.
+        assert!(version_warning("some custom build").is_none());
     }
 
     #[test]

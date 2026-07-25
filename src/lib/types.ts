@@ -96,7 +96,8 @@ export interface RootValidation {
 }
 
 export type GitWtResolution =
-  | { ok: true; path: string; version: string }
+  /** `warning` is set when worktrunk is older than the version this build targets (spec Q3). */
+  | { ok: true; path: string; version: string; warning?: string }
   | { ok: false; error: string };
 
 /** A live PTY session (REQ-7). */

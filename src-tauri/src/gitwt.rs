@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 use tokio::task::JoinSet;
 
 use crate::config::DeckConfig;
@@ -37,8 +38,14 @@ impl Subcommand {
         }
     }
 
-    /// Parses a subcommand name, rejecting anything outside the allowlist. This is the guard
-    /// referenced by NFR-3 and is unit-tested below.
+    /// Parses a subcommand name, rejecting anything outside the allowlist (NFR-3).
+    ///
+    /// Currently unused in production, and deliberately so: the command surface takes a
+    /// [`Subcommand`] value rather than a string, which makes the allowlist a *type-level*
+    /// guarantee that cannot be bypassed at all. This function exists as the guard for any
+    /// future entry point where a subcommand does arrive as a string — and the tests below
+    /// pin the rejection behaviour so that guard is already proven when it is needed.
+    #[allow(dead_code)]
     pub fn parse(name: &str) -> DeckResult<Self> {
         match name {
             "list" => Ok(Subcommand::List),
@@ -116,6 +123,91 @@ pub async fn run_checked(
         code: "non-zero".into(),
         stderr: detail,
     })
+}
+
+/* --------------------------------------------------------------- streaming */
+
+/// A line of output from a long-running worktrunk action (TASK-9).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliLogEvent {
+    pub run_id: String,
+    pub line: String,
+    /// `"stdout"` or `"stderr"`. worktrunk writes progress to stderr, so the UI needs both —
+    /// and needs to tell them apart to style failures differently.
+    pub stream: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliLogEndEvent {
+    pub run_id: String,
+    pub code: Option<i32>,
+}
+
+/// Forwards one pipe of a child's output as `cli-log` events until it closes.
+async fn pump<R>(reader: Option<R>, stream: &'static str, app: AppHandle, run_id: String)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let Some(reader) = reader else { return };
+    let mut lines = BufReader::new(reader).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let _ = app.emit(
+            "cli-log",
+            CliLogEvent {
+                run_id: run_id.clone(),
+                line,
+                stream,
+            },
+        );
+    }
+}
+
+/// Runs a worktrunk subcommand, forwarding output line-by-line as `cli-log` events and
+/// finishing with `cli-log-end`.
+///
+/// `switch --create` and `merge` can take tens of seconds (dependency install, rebase), so
+/// buffering them would leave the user watching a spinner with no idea whether anything is
+/// happening — or whether worktrunk is waiting on input (REQ-5).
+pub async fn run_streaming(
+    app: AppHandle,
+    run_id: String,
+    bin: PathBuf,
+    repo: PathBuf,
+    sub: Subcommand,
+    args: Vec<String>,
+) -> DeckResult<()> {
+    let argv = build_args(&repo, sub, &args);
+    let mut child = async_command(&bin)
+        .args(&argv)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| DeckError::GitWtMissing(format!("cannot execute {}: {e}", bin.display())))?;
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    // Both pipes must be drained concurrently: a child that fills one while we block on the
+    // other would deadlock.
+    let out_task = tokio::spawn(pump(stdout, "stdout", app.clone(), run_id.clone()));
+    let err_task = tokio::spawn(pump(stderr, "stderr", app.clone(), run_id.clone()));
+
+    let status = child.wait().await;
+    let _ = out_task.await;
+    let _ = err_task.await;
+
+    let _ = app.emit(
+        "cli-log-end",
+        CliLogEndEvent {
+            run_id,
+            code: status.ok().and_then(|s| s.code()),
+        },
+    );
+    Ok(())
 }
 
 /* ------------------------------------------------------------- list fan-out */
