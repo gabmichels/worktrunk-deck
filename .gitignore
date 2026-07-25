@@ -1,0 +1,15 @@
+# Dependencies / build output (populated once the app is scaffolded — TASK-1)
+node_modules/
+dist/
+src-tauri/target/
+
+# Local design reference (internal Kokoro screenshots — NOT for publishing)
+design-reference/
+
+# Worktrees (if this repo is later managed with worktrunk, nested layout)
+.claude/worktrees/
+
+# Env / local
+.env
+.env.*
+.DS_Store
