@@ -1,8 +1,8 @@
 //! The `#[tauri::command]` surface (plan §3.4). These are thin: argument marshalling, config
 //! lookup, then straight into `gitwt`/`pty`/`external`/`config`. No worktree logic lives here.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use tauri::{AppHandle, State};
 
@@ -138,7 +138,13 @@ pub async fn remove_worktree(
         args.push("--force".into());
     }
 
-    gitwt::run(&bin, std::path::Path::new(&repo_path), Subcommand::Remove, &args).await
+    gitwt::run(
+        &bin,
+        std::path::Path::new(&repo_path),
+        Subcommand::Remove,
+        &args,
+    )
+    .await
 }
 
 /* ------------------------------------------------------------- open / launch */

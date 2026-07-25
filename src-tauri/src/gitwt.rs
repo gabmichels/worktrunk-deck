@@ -88,11 +88,10 @@ pub async fn run(
     args: &[String],
 ) -> DeckResult<CliResult> {
     let argv = build_args(repo, sub, args);
-    let output = async_command(bin)
-        .args(&argv)
-        .output()
-        .await
-        .map_err(|e| DeckError::GitWtMissing(format!("cannot execute {}: {e}", bin.display())))?;
+    let output =
+        async_command(bin).args(&argv).output().await.map_err(|e| {
+            DeckError::GitWtMissing(format!("cannot execute {}: {e}", bin.display()))
+        })?;
 
     Ok(CliResult {
         ok: output.status.success(),
@@ -351,7 +350,15 @@ mod tests {
 
     #[test]
     fn allowlist_rejects_everything_else() {
-        for name in ["", "exec", "config", "rm", "List", "list;rm -rf /", "--version"] {
+        for name in [
+            "",
+            "exec",
+            "config",
+            "rm",
+            "List",
+            "list;rm -rf /",
+            "--version",
+        ] {
             assert!(
                 matches!(Subcommand::parse(name), Err(DeckError::NotAllowed(_))),
                 "{name} must be rejected"

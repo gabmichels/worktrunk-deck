@@ -78,12 +78,13 @@ impl DeckConfig {
         let mut out: Vec<PathBuf> = Vec::new();
         let mut seen = std::collections::HashSet::new();
 
-        let push = |p: PathBuf, out: &mut Vec<PathBuf>, seen: &mut std::collections::HashSet<String>| {
-            let key = normalize_key(&p);
-            if seen.insert(key) {
-                out.push(p);
-            }
-        };
+        let push =
+            |p: PathBuf, out: &mut Vec<PathBuf>, seen: &mut std::collections::HashSet<String>| {
+                let key = normalize_key(&p);
+                if seen.insert(key) {
+                    out.push(p);
+                }
+            };
 
         for r in &self.repos {
             push(PathBuf::from(r), &mut out, &mut seen);
@@ -299,7 +300,11 @@ fn version_warning(banner: &str) -> Option<String> {
     })
 }
 
-const BIN: &str = if cfg!(windows) { "git-wt.exe" } else { "git-wt" };
+const BIN: &str = if cfg!(windows) {
+    "git-wt.exe"
+} else {
+    "git-wt"
+};
 
 /// Resolves the `git-wt` binary and reads its version.
 ///
@@ -320,7 +325,12 @@ pub fn resolve_gitwt(config: &DeckConfig) -> GitWtResolution {
 /// never as a crash (REQ-15).
 pub fn locate_gitwt(config: &DeckConfig) -> DeckResult<PathBuf> {
     // 1. Explicit override — validated before use (NFR-3).
-    if let Some(over) = config.git_wt_path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(over) = config
+        .git_wt_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let p = PathBuf::from(over);
         if !p.is_file() {
             return Err(DeckError::GitWtMissing(format!(
@@ -416,9 +426,10 @@ fn login_shell_which() -> Option<PathBuf> {
 /// Runs `git-wt --version`. This doubles as validation that the resolved file is really the
 /// worktrunk CLI and is executable by us.
 fn probe_version(path: &Path) -> DeckResult<String> {
-    let out = command(path).arg("--version").output().map_err(|e| {
-        DeckError::GitWtMissing(format!("cannot execute {}: {e}", path.display()))
-    })?;
+    let out = command(path)
+        .arg("--version")
+        .output()
+        .map_err(|e| DeckError::GitWtMissing(format!("cannot execute {}: {e}", path.display())))?;
     if !out.status.success() {
         return Err(DeckError::GitWtMissing(format!(
             "{} --version exited with {}: {}",
@@ -445,7 +456,11 @@ mod tests {
     #[test]
     fn effective_repos_dedupes_across_list_and_scan() {
         let cfg = DeckConfig {
-            repos: vec!["C:/repos/a".into(), "C:/repos/a".into(), "C:/repos/b".into()],
+            repos: vec![
+                "C:/repos/a".into(),
+                "C:/repos/a".into(),
+                "C:/repos/b".into(),
+            ],
             ..Default::default()
         };
         let repos = cfg.effective_repos();
@@ -511,7 +526,11 @@ mod tests {
         .unwrap();
 
         let found = discover_repos(&tmp);
-        assert_eq!(found.len(), 1, "only the real checkout is a repo: {found:?}");
+        assert_eq!(
+            found.len(),
+            1,
+            "only the real checkout is a repo: {found:?}"
+        );
         assert!(found[0].ends_with("demo-app"));
 
         let _ = std::fs::remove_dir_all(&tmp);
@@ -560,6 +579,9 @@ mod tests {
             git_wt_path: Some("/no/such/git-wt".into()),
             ..Default::default()
         };
-        assert!(matches!(locate_gitwt(&cfg), Err(DeckError::GitWtMissing(_))));
+        assert!(matches!(
+            locate_gitwt(&cfg),
+            Err(DeckError::GitWtMissing(_))
+        ));
     }
 }

@@ -21,9 +21,7 @@ pub fn run_external(
 ) -> DeckResult<()> {
     let dir = Path::new(worktree_path);
     if !dir.is_dir() {
-        return Err(DeckError::Io(format!(
-            "{worktree_path} is not a directory"
-        )));
+        return Err(DeckError::Io(format!("{worktree_path} is not a directory")));
     }
 
     let joined = dev_command.map(join_command);
@@ -57,11 +55,7 @@ fn join_command(argv: &[String]) -> String {
 }
 
 #[cfg(windows)]
-fn run_external_windows(
-    cwd: &str,
-    dev: Option<&str>,
-    preferred: Option<&str>,
-) -> DeckResult<()> {
+fn run_external_windows(cwd: &str, dev: Option<&str>, preferred: Option<&str>) -> DeckResult<()> {
     // Windows Terminal first — it is the modern default and takes an explicit start directory.
     // NOTE: the executable is `wt.exe`. On this project's own author machine `wt` is shadowed
     // by worktrunk's alias in the shell, but we spawn the binary directly, so that does not
@@ -78,19 +72,16 @@ fn run_external_windows(
                 c.args(["-d", cwd]);
                 if let Some(dev) = dev {
                     // Keep the pane alive after the dev command exits so errors stay readable.
-                    c.args([
-                        "powershell.exe",
-                        "-NoExit",
-                        "-Command",
-                        dev,
-                    ]);
+                    c.args(["powershell.exe", "-NoExit", "-Command", dev]);
                 }
                 c.spawn()
             }
             "cmd.exe" | "cmd" => {
                 let mut c = command("cmd.exe");
                 match dev {
-                    Some(dev) => c.args(["/c", "start", "cmd.exe", "/k", "cd", "/d", cwd, "&&", dev]),
+                    Some(dev) => {
+                        c.args(["/c", "start", "cmd.exe", "/k", "cd", "/d", cwd, "&&", dev])
+                    }
                     None => c.args(["/c", "start", "cmd.exe", "/k", "cd", "/d", cwd]),
                 };
                 c.spawn()
@@ -98,7 +89,10 @@ fn run_external_windows(
             other => {
                 let mut c = command(other);
                 let script = match dev {
-                    Some(dev) => format!("Set-Location -LiteralPath '{}'; {dev}", cwd.replace('\'', "''")),
+                    Some(dev) => format!(
+                        "Set-Location -LiteralPath '{}'; {dev}",
+                        cwd.replace('\'', "''")
+                    ),
                     None => format!("Set-Location -LiteralPath '{}'", cwd.replace('\'', "''")),
                 };
                 c.args(["-NoExit", "-Command", &script]);

@@ -457,7 +457,11 @@ mod tests {
         write(&registry, &id, "echo worktrunk-deck-pty-ok\r\n")
             .expect("writing to a live session should succeed");
 
-        wait_for(&collected, "worktrunk-deck-pty-ok", "the echoed command output");
+        wait_for(
+            &collected,
+            "worktrunk-deck-pty-ok",
+            "the echoed command output",
+        );
 
         // Killing must remove it from the registry so nothing outlives the app (REQ-7).
         kill(&registry, &id).expect("kill should succeed");
