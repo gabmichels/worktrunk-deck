@@ -235,9 +235,22 @@ pub fn save(app: &AppHandle, config: &DeckConfig) -> DeckResult<()> {
 
 /* --------------------------------------------------------- repo discovery */
 
-/// Immediate children of `root` that are git repositories. Deliberately one level deep: a
-/// recursive scan would descend into `node_modules` and into worktrees themselves.
+/// Repos found under `root`.
+///
+/// Two shapes are supported, because both are things people actually point this at:
+///
+/// - **A workspace directory** — the immediate children that are repos. Deliberately one level
+///   deep; a recursive scan would descend into `node_modules` and into worktrees themselves.
+/// - **A single repository** — if `root` is itself a checkout, it *is* the answer. Scanning its
+///   children would find nothing and leave the user staring at an empty dashboard, when what
+///   they meant was "show me this repo". worktrunk then lists that repo's worktrees, including
+///   nested ones under `.claude/worktrees/`, so drilling into one repo hides the rest of the
+///   workspace without hiding any of its own worktrees.
 pub fn discover_repos(root: &Path) -> Vec<PathBuf> {
+    if is_git_repo(root) {
+        return vec![root.to_path_buf()];
+    }
+
     let Ok(entries) = std::fs::read_dir(root) else {
         return Vec::new();
     };
@@ -268,39 +281,41 @@ fn is_git_repo(path: &Path) -> bool {
 pub struct RootValidation {
     pub ok: bool,
     pub repo_count: usize,
+    /// True when the chosen directory is itself a checkout rather than a folder of them, so
+    /// the UI can say "this repository and its worktrees" instead of "1 repo found".
+    pub root_is_repo: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
 /// Powers the settings panel's live "Workspace OK — N repos found" (REQ-13).
 pub fn validate_root(path: &str) -> RootValidation {
+    let invalid = |error: String| RootValidation {
+        ok: false,
+        repo_count: 0,
+        root_is_repo: false,
+        error: Some(error),
+    };
+
     let p = Path::new(path);
     if path.trim().is_empty() {
-        return RootValidation {
-            ok: false,
-            repo_count: 0,
-            error: Some("Choose a directory to scan.".into()),
-        };
+        return invalid("Choose a directory to scan.".into());
     }
     if !p.exists() {
-        return RootValidation {
-            ok: false,
-            repo_count: 0,
-            error: Some(format!("{path} does not exist.")),
-        };
+        return invalid(format!("{path} does not exist."));
     }
     if !p.is_dir() {
-        return RootValidation {
-            ok: false,
-            repo_count: 0,
-            error: Some(format!("{path} is not a directory.")),
-        };
+        return invalid(format!("{path} is not a directory."));
     }
+
+    let root_is_repo = is_git_repo(p);
     let count = discover_repos(p).len();
     RootValidation {
         ok: count > 0,
         repo_count: count,
-        error: (count == 0).then(|| format!("No git repositories directly under {path}.")),
+        root_is_repo,
+        error: (count == 0)
+            .then(|| format!("No git repositories in {path}, and it is not a repository itself.")),
     }
 }
 
@@ -681,6 +696,41 @@ mod tests {
         let v = validate_root(&tmp.to_string_lossy());
         assert!(v.ok);
         assert_eq!(v.repo_count, 2);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Pointing the scan root at a single repo is how you drill into it and hide the rest of
+    /// the workspace; scanning its children would find nothing.
+    #[test]
+    fn a_root_that_is_itself_a_repo_resolves_to_that_repo() {
+        let tmp = std::env::temp_dir().join("wtdeck-root-is-repo-test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        // A nested worktree must not be counted as a second repo.
+        std::fs::create_dir_all(tmp.join(".claude").join("worktrees").join("feat-x")).unwrap();
+
+        let found = discover_repos(&tmp);
+        assert_eq!(found, vec![tmp.clone()]);
+
+        let v = validate_root(&tmp.to_string_lossy());
+        assert!(v.ok);
+        assert!(v.root_is_repo);
+        assert_eq!(v.repo_count, 1);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_workspace_root_is_not_flagged_as_a_repo() {
+        let tmp = std::env::temp_dir().join("wtdeck-workspace-root-test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("repo-a").join(".git")).unwrap();
+
+        let v = validate_root(&tmp.to_string_lossy());
+        assert!(v.ok);
+        assert!(!v.root_is_repo);
+        assert_eq!(v.repo_count, 1);
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

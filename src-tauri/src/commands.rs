@@ -183,6 +183,12 @@ pub fn open_url(url: String) -> DeckResult<()> {
     external::open_url(&url)
 }
 
+/// Reveals a worktree in Explorer / Finder / the XDG file manager.
+#[tauri::command]
+pub fn open_in_file_manager(path: String) -> DeckResult<()> {
+    external::open_in_file_manager(&path)
+}
+
 /// Launches the repo's dev command in the OS terminal instead of the integrated one (REQ-8).
 #[tauri::command]
 pub fn run_external(app: AppHandle, repo_path: String, worktree_path: String) -> DeckResult<()> {

@@ -66,7 +66,9 @@ export function SettingsModal({
       ipc
         .validateRoot(draft.scanRoot!)
         .then(setRootValidation)
-        .catch((e) => setRootValidation({ ok: false, repoCount: 0, error: String(e) }))
+        .catch((e) =>
+          setRootValidation({ ok: false, repoCount: 0, rootIsRepo: false, error: String(e) }),
+        )
         .finally(() => setValidating(false));
     }, VALIDATE_DEBOUNCE_MS);
     return () => window.clearTimeout(handle);
@@ -230,7 +232,9 @@ export function SettingsModal({
                 {validating
                   ? "Checking…"
                   : rootValidation?.ok
-                    ? `Workspace OK — ${rootValidation.repoCount} repos found`
+                    ? rootValidation.rootIsRepo
+                      ? "This folder is itself a repository — its worktrees will be shown"
+                      : `Workspace OK — ${rootValidation.repoCount} repos found`
                     : (rootValidation?.error ?? "Not checked yet")}
               </p>
             )}

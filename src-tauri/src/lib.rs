@@ -43,6 +43,7 @@ pub fn run() {
             commands::list_commits,
             commands::open_in_editor,
             commands::open_url,
+            commands::open_in_file_manager,
             commands::run_external,
             commands::pty_open,
             commands::pty_write,

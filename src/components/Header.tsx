@@ -3,7 +3,7 @@
  * being purely informational — clicking "3 running" is a faster path to "show me what's live"
  * than reaching for the text filter.
  */
-import { CircleHelp, Plus, RefreshCw, Settings } from "lucide-react";
+import { CircleHelp, CornerLeftUp, FolderOpen, Plus, RefreshCw, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,9 @@ export function Header({
   onNewWorktree,
   onOpenSettings,
   onOpenHelp,
+  scanRoot,
+  onPickFolder,
+  onGoToParent,
 }: {
   runningCount: number;
   totalCount: number;
@@ -33,6 +36,11 @@ export function Header({
   onNewWorktree: () => void;
   onOpenSettings: () => void;
   onOpenHelp: () => void;
+  /** The folder currently being scanned; null when only explicit repos are configured. */
+  scanRoot: string | null;
+  onPickFolder: () => void;
+  /** Undefined at a filesystem root, where there is nowhere left to go. */
+  onGoToParent?: (() => void) | undefined;
 }) {
   // Fetched once on mount rather than passed as a prop — it never changes for the life of the
   // running app, so it doesn't need to live in App.tsx's state.
@@ -81,6 +89,36 @@ export function Header({
         <span className="text-muted-foreground text-[11px]" aria-live="polite">
           {formatLastUpdated(lastUpdated, isStale)}
         </span>
+      </div>
+
+      {/* The folder being scanned, so it is always obvious which slice of the disk you are
+          looking at — and switchable without a trip through Settings. */}
+      <div className="flex min-w-0 items-center gap-1">
+        <Tooltip content={scanRoot ? `Scanning ${scanRoot}` : "Choose a folder to scan"}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onPickFolder}
+            className="h-6 max-w-[22rem] min-w-0 gap-1.5 px-2 font-normal"
+          >
+            <FolderOpen className="size-3.5 shrink-0" aria-hidden />
+            <span className="truncate font-mono text-[11px]">
+              {scanRoot ?? "Select folder…"}
+            </span>
+          </Button>
+        </Tooltip>
+        {onGoToParent && (
+          <Tooltip content="Go up one folder">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onGoToParent}
+              aria-label="Go up one folder"
+            >
+              <CornerLeftUp className="size-3.5" />
+            </Button>
+          </Tooltip>
+        )}
       </div>
 
       <div className="ml-auto flex items-center gap-1.5">

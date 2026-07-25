@@ -1,4 +1,5 @@
 import { TooltipProvider } from "@radix-ui/react-tooltip";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useMemo, useState } from "react";
 import { Toaster } from "sonner";
 
@@ -83,6 +84,38 @@ function Deck() {
     [snapshot],
   );
 
+  /**
+   * Switches the scanned folder. Drilling into a single repo is the fast way to escape a
+   * cluttered workspace: if the chosen folder is itself a checkout, the backend resolves it to
+   * that one repo and worktrunk lists its worktrees (including nested `.claude/worktrees`).
+   */
+  const setScanRoot = (next: string) => {
+    // Any repo-level filter refers to the old folder's repos, so it would silently hide
+    // everything in the new one.
+    setSelectedRepos(null);
+    void update({ scanRoot: next }).then(() => refresh());
+  };
+
+  const pickFolder = async () => {
+    const chosen = await openDialog({
+      directory: true,
+      multiple: false,
+      defaultPath: config.scanRoot,
+    });
+    if (typeof chosen === "string") setScanRoot(chosen);
+  };
+
+  const parentOf = (p: string): string | null => {
+    const trimmed = p.replace(/[/\\]+$/, "");
+    const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+    if (cut <= 0) return null;
+    const parent = trimmed.slice(0, cut);
+    // `C:` alone is not a usable directory; `C:/` is.
+    return /^[a-zA-Z]:$/.test(parent) ? `${parent}/` : parent;
+  };
+
+  const parent = config.scanRoot ? parentOf(config.scanRoot) : null;
+
   /** Hiding is a config change, so it survives restarts (unlike the filter above). */
   const hideRepo = (repoPath: string) => {
     const hidden = config.hiddenRepos ?? [];
@@ -134,6 +167,9 @@ function Deck() {
         onNewWorktree={() => setNewOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenHelp={() => setHelpOpen(true)}
+        scanRoot={config.scanRoot ?? null}
+        onPickFolder={() => void pickFolder()}
+        onGoToParent={parent ? () => setScanRoot(parent) : undefined}
       />
 
       <FilterBar

@@ -35,7 +35,9 @@ export function FirstRunGate({ onDone }: { onDone: () => void }) {
       ipc
         .validateRoot(draft.scanRoot!)
         .then(setRootValidation)
-        .catch((e) => setRootValidation({ ok: false, repoCount: 0, error: String(e) }));
+        .catch((e) =>
+          setRootValidation({ ok: false, repoCount: 0, rootIsRepo: false, error: String(e) }),
+        );
     }, 400);
     return () => window.clearTimeout(handle);
   }, [draft.scanRoot]);
@@ -206,7 +208,9 @@ export function FirstRunGate({ onDone }: { onDone: () => void }) {
           {draft.scanRoot && rootValidation && (
             <p className={cn("pl-5 text-[11px]", rootValidation.ok ? "text-ok" : "text-destructive")}>
               {rootValidation.ok
-                ? `Workspace OK — ${rootValidation.repoCount} repos found`
+                ? rootValidation.rootIsRepo
+                  ? "This folder is itself a repository — its worktrees will be shown"
+                  : `Workspace OK — ${rootValidation.repoCount} repos found`
                 : (rootValidation.error ?? "Could not scan this directory.")}
             </p>
           )}

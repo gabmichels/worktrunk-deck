@@ -11,6 +11,7 @@ import {
   Copy,
   ExternalLink,
   FolderOpen,
+  FolderSymlink,
   GitMerge,
   Play,
   Terminal as TerminalIcon,
@@ -37,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useConfig } from "@/hooks/useConfig";
+import { fileManagerLabel, useHostPlatform } from "@/hooks/useHostPlatform";
 import type { UseCliRun } from "@/hooks/useCliRun";
 import * as ipc from "@/lib/ipc";
 import type { Worktree } from "@/lib/types";
@@ -55,6 +57,7 @@ export function WorktreeActions({
   onRunDev?: (w: Worktree) => void;
 }) {
   const { config } = useConfig();
+  const platform = useHostPlatform();
   const [confirmKind, setConfirmKind] = useState<"merge" | "remove" | null>(null);
   // Populated once worktrunk has refused a plain remove; drives the force-escalation dialog.
   const [removeRefusal, setRemoveRefusal] = useState<string | null>(null);
@@ -142,6 +145,9 @@ export function WorktreeActions({
           )}
           <DropdownMenuItem onSelect={() => void ipc.openInEditor(w.path)}>
             <FolderOpen /> Open in editor
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void ipc.openInFileManager(w.path)}>
+            <FolderSymlink /> {fileManagerLabel(platform)}
           </DropdownMenuItem>
           {w.url && (
             <DropdownMenuItem onSelect={() => void ipc.openUrl(w.url!)}>

@@ -117,6 +117,8 @@ export interface CliResult {
 export interface RootValidation {
   ok: boolean;
   repoCount: number;
+  /** True when the chosen directory is itself a checkout rather than a folder of them. */
+  rootIsRepo: boolean;
   /** Populated when `ok` is false — why the path is unusable. */
   error?: string;
 }

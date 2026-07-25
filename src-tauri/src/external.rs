@@ -204,7 +204,7 @@ pub fn open_in_editor(path: &str) -> DeckResult<()> {
             return Ok(());
         }
     }
-    open_in_file_manager(path)
+    spawn_file_manager(path)
 }
 
 fn editor_candidates() -> Vec<String> {
@@ -220,7 +220,15 @@ fn editor_candidates() -> Vec<String> {
     vec![exe("cursor"), exe("code")]
 }
 
-fn open_in_file_manager(path: &str) -> DeckResult<()> {
+/// Reveals a directory in the OS file manager — Explorer, Finder, or the XDG default.
+pub fn open_in_file_manager(path: &str) -> DeckResult<()> {
+    if !Path::new(path).exists() {
+        return Err(DeckError::Io(format!("{path} no longer exists")));
+    }
+    spawn_file_manager(path)
+}
+
+fn spawn_file_manager(path: &str) -> DeckResult<()> {
     #[cfg(windows)]
     let result = command("explorer.exe").arg(path).spawn();
     #[cfg(target_os = "macos")]

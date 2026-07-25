@@ -84,6 +84,7 @@ const CliResultSchema = z.object({
 const RootValidationSchema = z.object({
   ok: z.boolean(),
   repoCount: z.number(),
+  rootIsRepo: z.boolean(),
   error: z.string().optional(),
 });
 
@@ -208,6 +209,11 @@ export function openInEditor(path: string): Promise<void> {
 /** Opens a dev-server URL in the default browser; the backend restricts it to http(s). */
 export function openUrl(url: string): Promise<void> {
   return invoke("open_url", { url });
+}
+
+/** Reveals a path in Explorer / Finder / the XDG file manager. */
+export function openInFileManager(path: string): Promise<void> {
+  return invoke("open_in_file_manager", { path });
 }
 
 /** Launches the repo's dev command in the OS terminal instead of the integrated one (REQ-8). */
