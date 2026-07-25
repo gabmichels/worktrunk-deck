@@ -259,6 +259,11 @@ export function appVersion(): Promise<string> {
   return getVersion();
 }
 
+/** `"windows" | "macos" | "linux" | …` — drives the setup screen's install instructions. */
+export function hostPlatform(): Promise<string> {
+  return call("host_platform", z.string());
+}
+
 /* ------------------------------------------------------------------ events */
 
 function subscribe<T>(

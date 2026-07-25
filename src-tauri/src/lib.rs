@@ -35,6 +35,7 @@ pub fn run() {
             commands::set_config,
             commands::validate_root,
             commands::resolve_gitwt,
+            commands::host_platform,
             commands::list_worktrees,
             commands::create_worktree,
             commands::merge_worktree,

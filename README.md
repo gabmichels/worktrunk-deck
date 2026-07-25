@@ -11,26 +11,50 @@ over `git-wt`**; worktrunk remains the single source of truth for worktree and p
 > implemented. It has been exercised end-to-end on Windows; macOS and Linux build in CI but
 > have not yet had a manual pass (see [Roadmap](#roadmap)).
 
-## Quick start
+## Requirements
 
-**Prerequisites**
+**To *use* the app you need exactly one thing: [worktrunk](https://worktrunk.dev) (`git-wt`)
+≥ 0.60.** Nothing else — the released bundles are compiled, so there is no Node or Rust
+toolchain to install.
 
-- [worktrunk](https://worktrunk.dev) (`git-wt`) ≥ 0.60, installed and on `PATH`
+That requirement is not incidental. worktrunk owns every worktree and port decision; the deck
+is a view and controller over it and reimplements none of that (see
+[Non-goals](./specs/v1/spec.md#3-non-goals)). Without `git-wt` there is genuinely nothing to
+show, so the app detects its absence on launch and walks you through installing it — with the
+command for your platform, a Copy button, and a re-check — rather than failing with an error.
+
+Install worktrunk:
+
+```sh
+# Windows
+winget install max-sixty.worktrunk && git-wt config shell install
+
+# macOS / Linux
+brew install worktrunk && wt config shell install
+
+# any platform with a Rust toolchain
+cargo install worktrunk && wt config shell install
+```
+
+`git` itself must also be present, but worktrunk already requires it.
+
+> **We deliberately do not bundle worktrunk.** It is a separate project on its own release
+> cadence; vendoring a copy would pin you to whatever version we happened to ship, and would
+> shadow the `git-wt` you already have configured.
+
+### Building from source
+
+Only needed if you are contributing or want an unreleased build. Additionally requires:
+
 - Node ≥ 22 and [pnpm](https://pnpm.io)
-- A [Rust toolchain](https://rustup.rs) (for the Tauri backend), plus your platform's
-  [Tauri v2 system dependencies](https://v2.tauri.app/start/prerequisites/)
-
-**Run it**
+- A [Rust toolchain](https://rustup.rs)
+- Your platform's [Tauri v2 system dependencies](https://v2.tauri.app/start/prerequisites/)
+  (on Debian/Ubuntu: `libwebkit2gtk-4.1-dev`, `librsvg2-dev`, `patchelf`)
 
 ```sh
 pnpm install
-pnpm tauri dev
-```
-
-**Build a bundle**
-
-```sh
-pnpm tauri build
+pnpm tauri dev      # run with hot reload
+pnpm tauri build    # produce an installer for the current platform
 ```
 
 **Configuration.** The deck reads a small JSON config from your OS app-config directory

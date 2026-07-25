@@ -3,6 +3,7 @@
  * old full-width text input — most of that width went unused for anything but the placeholder.
  */
 import { ChevronDown, Search, X } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,10 @@ export interface RepoChoice {
  */
 export type RepoSelection = string[] | null;
 
+function unique(paths: string[]): string[] {
+  return [...new Set(paths)];
+}
+
 export function FilterBar({
   value,
   onChange,
@@ -48,6 +53,20 @@ export function FilterBar({
   const allSelected = selectedRepoPaths === null;
   const selectedSet = new Set(selectedRepoPaths ?? []);
 
+  // A workspace can hold dozens of repos, which is more than is comfortable to scan by eye —
+  // so the menu gets its own search, independent of the worktree filter beside it.
+  const [repoQuery, setRepoQuery] = useState("");
+  const shownRepos = repoQuery.trim()
+    ? repos.filter((r) => {
+        const q = repoQuery.trim().toLowerCase();
+        return r.repo.toLowerCase().includes(q) || r.repoPath.toLowerCase().includes(q);
+      })
+    : repos;
+
+  /** Collapses a complete list back to `null` so repos added later stay visible. */
+  const commit = (next: string[]) =>
+    onSelectedRepoPathsChange(next.length === repos.length ? null : next);
+
   const toggleRepo = (repoPath: string) => {
     if (allSelected) {
       // From "all", unchecking one means "all except this one" — the user is narrowing, not
@@ -57,11 +76,11 @@ export function FilterBar({
       );
       return;
     }
-    const next = selectedSet.has(repoPath)
-      ? (selectedRepoPaths ?? []).filter((p) => p !== repoPath)
-      : [...(selectedRepoPaths ?? []), repoPath];
-    // Ticking every repo collapses back to "all", so repos added later still appear.
-    onSelectedRepoPathsChange(next.length === repos.length ? null : next);
+    commit(
+      selectedSet.has(repoPath)
+        ? (selectedRepoPaths ?? []).filter((p) => p !== repoPath)
+        : [...(selectedRepoPaths ?? []), repoPath],
+    );
   };
 
   const selectedCount = allSelected ? repos.length : selectedSet.size;
@@ -85,33 +104,81 @@ export function FilterBar({
             <ChevronDown className="size-3" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="max-h-80 w-64 overflow-y-auto">
+        <DropdownMenuContent align="start" className="flex max-h-96 w-72 flex-col">
+          <div className="border-border flex items-center gap-1.5 border-b px-2 pb-1.5">
+            <Search className="text-muted-foreground size-3 shrink-0" aria-hidden />
+            <input
+              value={repoQuery}
+              onChange={(e) => setRepoQuery(e.target.value)}
+              // Radix menus consume keystrokes for typeahead, which would swallow everything
+              // typed here and jump focus between items instead.
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="Search repositories…"
+              aria-label="Search repositories"
+              className="placeholder:text-muted-foreground h-6 w-full bg-transparent text-[12px] outline-none"
+              autoFocus
+            />
+            {repoQuery && (
+              <button
+                type="button"
+                onClick={() => setRepoQuery("")}
+                aria-label="Clear repository search"
+                className="text-muted-foreground hover:text-foreground shrink-0"
+              >
+                <X className="size-3" />
+              </button>
+            )}
+          </div>
+
           <div className="flex items-center gap-2 px-2 py-1">
             <button
               type="button"
               className="text-primary text-[11px] hover:underline disabled:opacity-50"
-              onClick={() => onSelectedRepoPathsChange(null)}
-              disabled={allSelected}
+              // With a search active these act on what is visible, which is what "select all"
+              // means when you have just narrowed the list.
+              onClick={() => {
+                if (!repoQuery.trim()) {
+                  onSelectedRepoPathsChange(null);
+                  return;
+                }
+                const base = selectedRepoPaths ?? repos.map((r) => r.repoPath);
+                commit(unique([...base, ...shownRepos.map((r) => r.repoPath)]));
+              }}
+              disabled={allSelected && !repoQuery.trim()}
             >
-              Select all
+              {repoQuery.trim() ? "Select matching" : "Select all"}
             </button>
             <span className="text-muted-foreground text-[11px]">·</span>
             <button
               type="button"
               className="text-primary text-[11px] hover:underline disabled:opacity-50"
-              onClick={() => onSelectedRepoPathsChange([])}
+              onClick={() => {
+                if (!repoQuery.trim()) {
+                  onSelectedRepoPathsChange([]);
+                  return;
+                }
+                const drop = new Set(shownRepos.map((r) => r.repoPath));
+                const base = selectedRepoPaths ?? repos.map((r) => r.repoPath);
+                commit(base.filter((p) => !drop.has(p)));
+              }}
               disabled={selectedCount === 0}
             >
-              Deselect all
+              {repoQuery.trim() ? "Deselect matching" : "Deselect all"}
             </button>
           </div>
           <DropdownMenuSeparator />
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
           {repos.length === 0 ? (
             <p className="text-muted-foreground px-2 py-1.5 text-[11px]">
               No repositories configured.
             </p>
+          ) : shownRepos.length === 0 ? (
+            <p className="text-muted-foreground px-2 py-1.5 text-[11px]">
+              No repositories match “{repoQuery}”.
+            </p>
           ) : (
-            repos.map((r) => (
+            shownRepos.map((r) => (
               <DropdownMenuCheckboxItem
                 key={r.repoPath}
                 checked={allSelected || selectedSet.has(r.repoPath)}
@@ -132,6 +199,7 @@ export function FilterBar({
               </DropdownMenuCheckboxItem>
             ))
           )}
+          </div>
         </DropdownMenuContent>
       </DropdownMenu>
 

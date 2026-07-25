@@ -5,9 +5,10 @@
  * rendering this gate and start `useWorktrees`).
  */
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { CheckCircle2, FolderOpen, Plus, X, XCircle } from "lucide-react";
+import { CheckCircle2, FolderOpen, Plus, RefreshCw, X, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { InstallWorktrunk } from "@/components/InstallWorktrunk";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +18,7 @@ import type { DeckConfig, RootValidation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function FirstRunGate({ onDone }: { onDone: () => void }) {
-  const { config, gitWt, save } = useConfig();
+  const { config, gitWt, save, reload } = useConfig();
   const [draft, setDraft] = useState<DeckConfig>(config);
   const [newRepoPath, setNewRepoPath] = useState("");
   const [rootValidation, setRootValidation] = useState<RootValidation | null>(null);
@@ -101,21 +102,38 @@ export function FirstRunGate({ onDone }: { onDone: () => void }) {
                 : `${gitWt.error} — install worktrunk, or point to the binary below.`}
           </p>
           {!gitWtOk && (
-            <div className="flex gap-1.5 pl-5">
-              <Input
-                value={draft.gitWtPath ?? ""}
-                onChange={(e) => patch({ gitWtPath: e.target.value || undefined })}
-                placeholder="Path to the git-wt binary"
-                className="font-mono text-[12px]"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void browseFor("gitWtPath")}
-                aria-label="Browse for the git-wt binary"
-              >
-                <FolderOpen className="size-3.5" />
-              </Button>
+            <div className="space-y-2 pl-5">
+              <InstallWorktrunk />
+              <div className="space-y-1">
+                <p className="text-muted-foreground text-[11px]">
+                  Already installed? GUI apps inherit a shorter PATH than your shell, so point
+                  at the binary directly:
+                </p>
+                <div className="flex gap-1.5">
+                  <Input
+                    value={draft.gitWtPath ?? ""}
+                    onChange={(e) => patch({ gitWtPath: e.target.value || undefined })}
+                    placeholder="Path to the git-wt binary"
+                    className="font-mono text-[12px]"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void browseFor("gitWtPath")}
+                    aria-label="Browse for the git-wt binary"
+                  >
+                    <FolderOpen className="size-3.5" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void reload()}
+                    aria-label="Re-check for git-wt"
+                  >
+                    <RefreshCw className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </section>

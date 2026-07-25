@@ -38,6 +38,15 @@ pub fn validate_root(path: String) -> RootValidation {
     config::validate_root(&path)
 }
 
+/// The host OS, so the setup screen can show the right worktrunk install command.
+///
+/// Read from the compiled target rather than the webview's user-agent string, which lies on
+/// some Linux WebKit builds and tells us about the renderer rather than the machine.
+#[tauri::command]
+pub fn host_platform() -> &'static str {
+    std::env::consts::OS
+}
+
 #[tauri::command]
 pub fn resolve_gitwt(app: AppHandle) -> DeckResult<GitWtResolution> {
     let cfg = config::load(&app)?;
