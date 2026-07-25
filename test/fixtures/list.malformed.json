@@ -1,0 +1,67 @@
+[
+  {
+    "branch": "feat/ok",
+    "path": "C:/repos/demo-app.feat-ok",
+    "kind": "worktree",
+    "commit": {
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "short_sha": "aaaaaaa",
+      "message": "a perfectly fine row",
+      "timestamp": 1782553568
+    },
+    "working_tree": {
+      "staged": false,
+      "modified": false,
+      "untracked": false,
+      "renamed": false,
+      "deleted": false,
+      "diff": { "added": 0, "deleted": 0 }
+    },
+    "main_state": "same_commit",
+    "is_main": false,
+    "repo": { "name": "demo-app" },
+    "url": "http://localhost:11111",
+    "url_active": false
+  },
+  {
+    "branch": "feat/no-commit-object",
+    "path": "C:/repos/demo-app.feat-no-commit-object",
+    "working_tree": { "modified": "yes-please" },
+    "main": { "ahead": "many", "behind": null },
+    "url": 12345,
+    "url_active": "true"
+  },
+  null,
+  "not-even-an-object",
+  {
+    "path": "C:/repos/demo-app.feat-no-branch"
+  },
+  {
+    "branch": "feat/unknown-future-fields",
+    "path": "C:/repos/demo-app.feat-unknown-future-fields",
+    "kind": "worktree",
+    "commit": {
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "short_sha": "bbbbbbb",
+      "message": "worktrunk added fields we do not know about",
+      "timestamp": 1782553999
+    },
+    "working_tree": {
+      "staged": true,
+      "modified": false,
+      "untracked": false,
+      "renamed": false,
+      "deleted": false,
+      "diff": { "added": 12, "deleted": 3 }
+    },
+    "main_state": "ahead",
+    "main": { "ahead": 2, "behind": 0, "diff": { "added": 12, "deleted": 3 } },
+    "remote": { "name": "origin", "branch": "main", "ahead": 2, "behind": 0 },
+    "is_main": false,
+    "repo": { "name": "demo-app" },
+    "url": "http://localhost:12222",
+    "url_active": true,
+    "some_future_field": { "nested": ["worktrunk", "v99"] },
+    "another_new_thing": 42
+  }
+]

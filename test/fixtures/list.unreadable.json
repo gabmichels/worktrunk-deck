@@ -1,0 +1,7 @@
+{
+  "repo": "missing-repo",
+  "repoPath": "C:/repos/missing-repo",
+  "load": "unreadable",
+  "error": "✗ Failed to execute: git rev-parse --git-common-dir\n  The system cannot find the file specified. (os error 2)",
+  "worktrees": []
+}

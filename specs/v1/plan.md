@@ -64,7 +64,7 @@ consumes (captured from worktrunk on a real repo; treat unknown fields as ignora
 ```jsonc
 {
   "branch": "fix/coach-memory-write-loss",
-  "path": "C:/Workspace/dryll.fix-coach-memory-write-loss",
+  "path": "C:/repos/demo-app.fix-coach-memory-write-loss",
   "kind": "worktree",
   "commit": { "sha": "…", "short_sha": "5a120fd", "message": "…", "timestamp": 1782553568 },
   "working_tree": {
@@ -76,7 +76,7 @@ consumes (captured from worktrunk on a real repo; treat unknown fields as ignora
   "remote": { "name": "origin", "branch": "main", "ahead": 0, "behind": 0 },
   "worktree": { "detached": false },
   "is_main": false, "is_current": false, "is_previous": false,
-  "repo": { "url": "…", "provider": "github", "host": "github.com", "owner": "…", "name": "dryll", "remote": "origin" },
+  "repo": { "url": "…", "provider": "github", "host": "github.com", "owner": "…", "name": "demo-app", "remote": "origin" },
   "url": "http://localhost:12107",   // dev-server URL worktrunk assigns
   "url_active": false,               // whether that URL is currently listening
   "statusline": "…(ANSI)…", "symbols": "!?^|"

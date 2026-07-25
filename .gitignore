@@ -3,7 +3,7 @@ node_modules/
 dist/
 src-tauri/target/
 
-# Local design reference (internal Kokoro screenshots — NOT for publishing)
+# Local design reference (private UI screenshots used as inspiration — not redistributable)
 design-reference/
 
 # Worktrees (if this repo is later managed with worktrunk, nested layout)
