@@ -27,15 +27,30 @@ export function NewWorktreeModal({
   repos,
   run,
   onCreated,
+  defaultRepoPath,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   repos: { repo: string; repoPath: string }[];
   run: UseCliRun;
   onCreated: () => void;
+  /** The repo selected in the list, if any — saves picking it again here. */
+  defaultRepoPath?: string | null;
 }) {
-  const [repoPath, setRepoPath] = useState<string>(repos[0]?.repoPath ?? "");
+  const [repoPath, setRepoPath] = useState<string>("");
   const [branch, setBranch] = useState("");
+
+  // Resolved when the dialog opens rather than at mount: `repos` arrives with the first
+  // snapshot, which lands well after this component first renders, and the selection in the
+  // list can change between openings.
+  useEffect(() => {
+    if (!open) return;
+    const preferred = repos.find((r) => r.repoPath === defaultRepoPath);
+    // With a single repo there is nothing to choose, so choose it.
+    const only = repos.length === 1 ? repos[0] : undefined;
+    const next = preferred ?? only;
+    if (next) setRepoPath(next.repoPath);
+  }, [open, defaultRepoPath, repos]);
 
   const selected = repos.find((r) => r.repoPath === repoPath) ?? repos[0];
   const canSubmit = Boolean(selected) && branch.trim().length > 0 && !run.running;

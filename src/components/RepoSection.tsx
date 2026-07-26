@@ -19,11 +19,17 @@ export function RepoSection({
   renderActions,
   onOpenTerminalAt,
   onHideRepo,
+  onSelect,
+  selectedPath,
 }: {
   repo: RepoResult;
   /** Post-filter worktrees; the section renders what it is given (REQ-10). */
   worktrees: Worktree[];
   renderActions?: (worktree: Worktree) => ReactNode;
+  /** Tracks which worktree — and therefore which repo — is the current context. */
+  onSelect?: (worktree: Worktree) => void;
+  /** `worktree.path` of the selected card, if it lives in this repo. */
+  selectedPath?: string | null;
   /** Opens a terminal at an arbitrary path — used to let the user run the fix manually (NFR-3). */
   onOpenTerminalAt?: (path: string) => void;
   /** Removes this repo from the dashboard without touching the config's `repos` list. */
@@ -58,7 +64,13 @@ export function RepoSection({
       ) : (
         <div className="space-y-1.5">
           {worktrees.map((w) => (
-            <WorktreeCard key={`${w.repoPath}::${w.branch}`} worktree={w} actions={renderActions?.(w)} />
+            <WorktreeCard
+              key={`${w.repoPath}::${w.branch}`}
+              worktree={w}
+              actions={renderActions?.(w)}
+              onSelect={onSelect}
+              selected={selectedPath === w.path}
+            />
           ))}
         </div>
       )}

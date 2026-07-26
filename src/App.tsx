@@ -58,6 +58,11 @@ function Deck() {
   const [runningOnly, setRunningOnly] = useState(false);
   /** `null` = every repo, including any discovered later (see FilterBar). */
   const [selectedRepos, setSelectedRepos] = useState<RepoSelection>(null);
+  /**
+   * The worktree the user last clicked. Purely contextual — it does not filter anything, it
+   * just remembers where you are so "New worktree" can default to the right repo.
+   */
+  const [selectedWorktree, setSelectedWorktree] = useState<Worktree | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
@@ -226,6 +231,8 @@ function Deck() {
                     renderActions={renderActions}
                     onOpenTerminalAt={openTerminalAt}
                     onHideRepo={hideRepo}
+                    onSelect={setSelectedWorktree}
+                    selectedPath={selectedWorktree?.path ?? null}
                   />
                 );
               })}
@@ -272,6 +279,7 @@ function Deck() {
         repos={(snapshot?.repos ?? []).map((r) => ({ repo: r.repo, repoPath: r.repoPath }))}
         run={run}
         onCreated={() => void refresh()}
+        defaultRepoPath={selectedWorktree?.repoPath ?? null}
       />
       <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
       <HelpModal open={helpOpen} onOpenChange={setHelpOpen} />
