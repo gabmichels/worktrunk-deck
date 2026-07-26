@@ -81,16 +81,19 @@ pub fn open_in_file_manager(path: &str) -> DeckResult<()> {
     spawn_file_manager(path)
 }
 
+/// Opens a directory in the OS file manager.
+///
+/// Delegated to `tauri-plugin-opener` rather than spawning `explorer.exe` / `open` / `xdg-open`
+/// ourselves, because the per-OS details are worse than they look. worktrunk reports paths with
+/// forward slashes (`C:/Workspace/repo.feat-x`); every Win32 API accepts those, but Explorer
+/// parses its own argument, cannot resolve the path, and quietly opens a default folder instead
+/// of failing — so "Open in Explorer" landed in the wrong directory while appearing to work. The
+/// plugin normalizes the path (`std::path::absolute` + `dunce::simplified`) and then uses the
+/// shell APIs directly: `SHOpenFolderAndSelectItems` on Windows, `NSWorkspace` on macOS, and
+/// D-Bus `org.freedesktop.FileManager1` with an OpenURI-portal fallback on Linux, which also
+/// makes this work from inside a Flatpak where `xdg-open` does not.
 fn spawn_file_manager(path: &str) -> DeckResult<()> {
-    #[cfg(windows)]
-    let result = command("explorer.exe").arg(path).spawn();
-    #[cfg(target_os = "macos")]
-    let result = command("open").arg(path).spawn();
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let result = command("xdg-open").arg(path).spawn();
-
-    result
-        .map(|_| ())
+    tauri_plugin_opener::open_path(path, None::<&str>)
         .map_err(|e| DeckError::Io(format!("could not open {path}: {e}")))
 }
 
@@ -112,15 +115,11 @@ pub fn open_url(url: &str) -> DeckResult<()> {
         )));
     }
 
-    #[cfg(windows)]
-    let result = command("cmd.exe").args(["/c", "start", "", url]).spawn();
-    #[cfg(target_os = "macos")]
-    let result = command("open").arg(url).spawn();
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let result = command("xdg-open").arg(url).spawn();
-
-    result
-        .map(|_| ())
+    // Also delegated: the old `cmd /c start "" <url>` passed the URL through a shell that treats
+    // `&` as a command separator, and dev-server URLs are the kind of string that grows query
+    // parameters. The plugin hands the URL to `Start-Process` as an environment variable instead,
+    // so it is never parsed as code.
+    tauri_plugin_opener::open_url(url, None::<&str>)
         .map_err(|e| DeckError::Io(format!("could not open {url}: {e}")))
 }
 
@@ -167,6 +166,16 @@ mod tests {
     fn command_joining_leaves_simple_arguments_alone() {
         let argv = vec!["pnpm".to_string(), "dev".to_string()];
         assert_eq!(join_command(&argv), "pnpm dev");
+    }
+
+    /// The forward-slash paths worktrunk emits must reach the opener as a path that exists.
+    ///
+    /// There is no assertion on *where* Explorer lands — that belongs to the opener plugin, and
+    /// asserting it would mean opening a real window during `cargo test`. What is ours to check
+    /// is the guard: a missing path must be reported, not silently opened as something else.
+    #[test]
+    fn a_path_that_no_longer_exists_is_reported() {
+        assert!(open_in_file_manager("C:/definitely/not/here/at/all").is_err());
     }
 
     #[test]

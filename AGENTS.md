@@ -199,6 +199,11 @@ commit.
   repo duplicates.
 - **A scan root that is itself a repo** resolves to that one repo rather than scanning children —
   that is how drilling into a single project works.
+- **worktrunk reports paths with forward slashes** (`C:/Workspace/repo.feat-x`). Win32 accepts
+  those, so most things work — but `explorer.exe` parses its own argument, cannot resolve it, and
+  opens a *default* folder instead of erroring. Anything shell-facing therefore goes through
+  `tauri-plugin-opener` (`open_path` / `open_url`), which normalizes first; do not spawn
+  `explorer.exe`, `open` or `xdg-open` by hand.
 - **`process::command` hides the window; `windowed_command` shows it.** `CREATE_NO_WINDOW` on a
   Windows *console* program means no console at all, so a shell spawned with it runs headless —
   invisible, and impossible to type into. Anything the user is meant to see (an external
