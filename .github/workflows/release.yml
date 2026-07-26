@@ -1,9 +1,21 @@
 name: Release
 
-# Tag a commit (e.g. `git tag v0.1.0 && git push --tags`) to produce installers for all three
-# platforms. Builds are **unsigned** — signing and notarization are post-v1 (plan §7), so the
-# release notes below carry the per-OS steps to open them. Keep those steps here rather than
-# pointing at the README: someone downloading a binary is reading the release page, not the repo.
+# Tag a commit (e.g. `git tag v0.1.0 && git push --tags`) to publish installers.
+#
+# Windows and Linux only, deliberately. All three platforms build fine in CI — macOS is not
+# excluded for technical reasons — but an unsigned macOS bundle fails Gatekeeper with
+# "worktrunk-deck is damaged and can't be opened", which reads as a corrupt download rather than
+# a security prompt, and generates bug reports instead of `xattr` invocations. Windows'
+# SmartScreen at least states plainly what it is doing, and Linux has no gatekeeping at all.
+#
+# To add macOS later you need an Apple Developer Program membership for a Developer ID
+# certificate and notarization — not a Mac, since the runners build it. Re-add the
+# `macos-latest` matrix entry with `--target universal-apple-darwin` and supply the signing
+# secrets; until then macOS users build from source, which the README covers.
+#
+# Windows and Linux bundles are still unsigned, so the release notes below carry the steps to
+# open them. They live here rather than in the README: someone downloading a binary is reading
+# the release page, not the repo.
 on:
   push:
     tags: ["v*"]
@@ -21,9 +33,6 @@ jobs:
         include:
           - os: ubuntu-22.04
             args: ""
-          - os: macos-latest
-            # A universal binary so one download covers both Apple Silicon and Intel.
-            args: "--target universal-apple-darwin"
           - os: windows-latest
             args: ""
     runs-on: ${{ matrix.os }}
@@ -44,8 +53,6 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -65,16 +72,25 @@ jobs:
             Requires [worktrunk](https://worktrunk.dev) (`git-wt`) ≥ 0.60 installed and on your
             PATH. The app will walk you through installing it if it is missing.
 
+            ### Windows and Linux
+
             **These builds are unsigned**, so your OS will object the first time:
 
-            - **macOS** — "worktrunk-deck is damaged and can't be opened" is Gatekeeper, not a
-              corrupt download. Clear the quarantine flag:
-              `xattr -dr com.apple.quarantine "/Applications/worktrunk-deck.app"`
             - **Windows** — SmartScreen shows "Windows protected your PC". Choose
               **More info → Run anyway**.
             - **Linux** — mark the AppImage executable: `chmod +x worktrunk-deck_*.AppImage`
 
-            Building from source avoids all of this — see the README.
+            ### macOS
+
+            No macOS build is published yet. It compiles fine, but an unsigned bundle fails
+            Gatekeeper with "worktrunk-deck is damaged and can't be opened" — which looks like a
+            broken download rather than a security prompt. Signing needs an Apple Developer
+            Program membership; until that exists, build from source:
+
+            ```sh
+            git clone https://github.com/gabmichels/worktrunk-deck.git
+            cd worktrunk-deck && pnpm install && pnpm tauri build
+            ```
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

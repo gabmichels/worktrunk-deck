@@ -15,9 +15,10 @@ for worktree and port state; the deck reimplements none of it.
 **There are no downloadable builds yet — you install it by building from source.** That takes
 about five minutes and the steps are below.
 
-The app itself is feature-complete for v1 and CI builds it on Windows, macOS and Linux. What is
-missing is the release side: nothing has been tagged, so there are no installers to download.
-See [Known gaps](#known-gaps) for the honest list.
+The app is feature-complete for v1 and CI builds it on Windows, macOS and Linux. What is missing
+is the release side: nothing has been tagged, so there are no installers to download. When that
+happens it will cover **Windows and Linux**; macOS stays build-from-source until there is a
+signing certificate, for the reason in [Known gaps](#known-gaps).
 
 ## Requirements
 
@@ -162,10 +163,14 @@ pnpm tauri icon docs/icon-1024.png
 
 ## Known gaps
 
-- **No published releases.** A tag-triggered workflow exists and produces bundles for all three
-  platforms, but nothing has been tagged, so building from source is currently the only way in.
-- **Builds would be unsigned.** Signing and notarization are post-v1, so a released binary would
-  trip Gatekeeper on macOS and SmartScreen on Windows. Building it yourself avoids that entirely.
+- **No published releases yet.** A tag-triggered workflow is ready to publish Windows and Linux
+  installers, but nothing has been tagged, so building from source is currently the only way in.
+- **macOS will stay build-from-source for now.** It compiles fine — CI builds it on every push —
+  but an unsigned macOS bundle fails Gatekeeper with *"worktrunk-deck is damaged and can't be
+  opened"*, which reads as a corrupt download rather than a security prompt. Signing requires an
+  Apple Developer Program membership (the runners handle the build, so no Mac is needed — just
+  the certificate). Windows and Linux are shipped unsigned because their warnings are honest and
+  dismissible.
 - **Manual testing has been Windows-only.** CI builds and runs the full suite on all three
   platforms, but nobody has yet clicked through the app on macOS or Linux. The integrated
   terminal and "Run externally" are the most likely places to find problems there.
