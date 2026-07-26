@@ -18,6 +18,7 @@ import type {
   PtyOutputEvent,
   RootValidation,
   SessionId,
+  TerminalChoice,
   WorkingTreeStatus,
 } from "./types";
 
@@ -228,6 +229,23 @@ export function openInFileManager(path: string): Promise<void> {
 /** Launches the repo's dev command in the OS terminal instead of the integrated one (REQ-8). */
 export function runExternal(repoPath: string, worktreePath: string): Promise<void> {
   return invoke("run_external", { repoPath, worktreePath });
+}
+
+const TerminalChoiceSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  available: z.boolean(),
+  path: z.string().nullable(),
+});
+
+/**
+ * The terminals this build knows about, each flagged with whether it is installed.
+ *
+ * Only the backend can answer this — detection is a filesystem probe of `PATH`,
+ * `/Applications` and `%ProgramFiles%`, none of which the webview can see.
+ */
+export function listTerminals(): Promise<TerminalChoice[]> {
+  return call("list_terminals", z.array(TerminalChoiceSchema), {});
 }
 
 /* --------------------------------------------------------------------- PTY */

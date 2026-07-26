@@ -1,9 +1,9 @@
 //! "Run externally" (REQ-8) and the open-in-editor / open-URL helpers (REQ-6).
 //!
-//! Some people want their own terminal — their profile, their font, their tmux. This module is
-//! best-effort by design: every platform has a different terminal story, so we try the user's
-//! configured choice, then a sensible per-OS default, and report a clear failure rather than
-//! guessing wildly (plan §5).
+//! Some people want their own terminal — their profile, their font, their tmux. Which terminals
+//! exist and how each is launched lives in [`crate::terminals`]; what remains here is the
+//! editor, file-manager and URL openers, which are one command per platform and need no
+//! catalogue.
 
 use std::path::Path;
 
@@ -13,7 +13,9 @@ use crate::process::command;
 /// Opens the OS terminal in `worktree_path`, running `dev_command` if one is configured.
 ///
 /// `preferred` comes from `config.externalTerminal`; when it is `None` we fall back to the
-/// first candidate that exists on this machine.
+/// first candidate that exists on this machine. Which terminals exist and how each one is
+/// launched lives in `terminals.rs` — this function's job is only to validate the directory
+/// and flatten the dev command into a single shell line.
 pub fn run_external(
     worktree_path: &str,
     dev_command: Option<&[String]>,
@@ -25,19 +27,7 @@ pub fn run_external(
     }
 
     let joined = dev_command.map(join_command);
-
-    #[cfg(windows)]
-    {
-        run_external_windows(worktree_path, joined.as_deref(), preferred)
-    }
-    #[cfg(target_os = "macos")]
-    {
-        run_external_macos(worktree_path, joined.as_deref(), preferred)
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        run_external_linux(worktree_path, joined.as_deref(), preferred)
-    }
+    crate::terminals::run(preferred, worktree_path, joined.as_deref())
 }
 
 /// Quotes each argument so a dev command with spaces survives the trip through a shell.
@@ -52,143 +42,6 @@ fn join_command(argv: &[String]) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-#[cfg(windows)]
-fn run_external_windows(cwd: &str, dev: Option<&str>, preferred: Option<&str>) -> DeckResult<()> {
-    // Windows Terminal first — it is the modern default and takes an explicit start directory.
-    // NOTE: the executable is `wt.exe`. On this project's own author machine `wt` is shadowed
-    // by worktrunk's alias in the shell, but we spawn the binary directly, so that does not
-    // apply here.
-    let candidates: Vec<&str> = match preferred {
-        Some(p) if !p.trim().is_empty() => vec![p],
-        _ => vec!["wt.exe", "powershell.exe", "cmd.exe"],
-    };
-
-    for candidate in candidates {
-        let spawned = match candidate {
-            "wt.exe" | "wt" => {
-                let mut c = command("wt.exe");
-                c.args(["-d", cwd]);
-                if let Some(dev) = dev {
-                    // Keep the pane alive after the dev command exits so errors stay readable.
-                    c.args(["powershell.exe", "-NoExit", "-Command", dev]);
-                }
-                c.spawn()
-            }
-            "cmd.exe" | "cmd" => {
-                let mut c = command("cmd.exe");
-                match dev {
-                    Some(dev) => {
-                        c.args(["/c", "start", "cmd.exe", "/k", "cd", "/d", cwd, "&&", dev])
-                    }
-                    None => c.args(["/c", "start", "cmd.exe", "/k", "cd", "/d", cwd]),
-                };
-                c.spawn()
-            }
-            other => {
-                let mut c = command(other);
-                let script = match dev {
-                    Some(dev) => format!(
-                        "Set-Location -LiteralPath '{}'; {dev}",
-                        cwd.replace('\'', "''")
-                    ),
-                    None => format!("Set-Location -LiteralPath '{}'", cwd.replace('\'', "''")),
-                };
-                c.args(["-NoExit", "-Command", &script]);
-                c.spawn()
-            }
-        };
-        if spawned.is_ok() {
-            return Ok(());
-        }
-    }
-
-    Err(DeckError::Io(
-        "could not launch an external terminal (tried Windows Terminal, PowerShell and cmd). \
-         Set a specific terminal in Settings."
-            .into(),
-    ))
-}
-
-#[cfg(target_os = "macos")]
-fn run_external_macos(cwd: &str, dev: Option<&str>, preferred: Option<&str>) -> DeckResult<()> {
-    // `open -a <App> <dir>` opens the app at that directory but cannot pass a command, so when
-    // there is a dev command we drive Terminal/iTerm via AppleScript instead.
-    let app = preferred
-        .filter(|p| !p.trim().is_empty())
-        .unwrap_or("Terminal");
-
-    if let Some(dev) = dev {
-        let script = match app {
-            "iTerm" | "iTerm2" => format!(
-                r#"tell application "iTerm"
-                     create window with default profile
-                     tell current session of current window to write text "cd {cwd} && {dev}"
-                   end tell"#
-            ),
-            _ => format!(r#"tell application "Terminal" to do script "cd {cwd} && {dev}""#),
-        };
-        let status = command("osascript").args(["-e", &script]).status()?;
-        if status.success() {
-            return Ok(());
-        }
-    }
-
-    let status = command("open").args(["-a", app, cwd]).status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(DeckError::Io(format!(
-            "could not open {app} at {cwd}. Set a specific terminal in Settings."
-        )))
-    }
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn run_external_linux(cwd: &str, dev: Option<&str>, preferred: Option<&str>) -> DeckResult<()> {
-    // There is no standard here. Honour $TERMINAL (which many users set precisely for this),
-    // then walk the common emulators.
-    let env_terminal = std::env::var("TERMINAL").ok();
-    let mut candidates: Vec<String> = Vec::new();
-    if let Some(p) = preferred.filter(|p| !p.trim().is_empty()) {
-        candidates.push(p.to_string());
-    }
-    if let Some(t) = env_terminal.filter(|t| !t.trim().is_empty()) {
-        candidates.push(t);
-    }
-    candidates.extend(
-        [
-            "x-terminal-emulator",
-            "gnome-terminal",
-            "konsole",
-            "kitty",
-            "alacritty",
-            "wezterm",
-            "xfce4-terminal",
-            "xterm",
-        ]
-        .iter()
-        .map(|s| s.to_string()),
-    );
-
-    for candidate in candidates {
-        let mut c = command(&candidate);
-        // `--working-directory` is GNOME's spelling; most others accept `-e` with a shell that
-        // cd's itself, which is why we build the command that way for the generic case.
-        let shell_cmd = match dev {
-            Some(dev) => format!("cd {cwd:?} && {dev}; exec ${{SHELL:-/bin/sh}}"),
-            None => format!("cd {cwd:?}; exec ${{SHELL:-/bin/sh}}"),
-        };
-        c.args(["-e", "sh", "-c", &shell_cmd]);
-        if c.spawn().is_ok() {
-            return Ok(());
-        }
-    }
-
-    Err(DeckError::Io(
-        "could not launch an external terminal. Set $TERMINAL, or choose one in Settings.".into(),
-    ))
 }
 
 /// Opens a folder in the user's editor: Cursor, then VS Code, then the OS file manager

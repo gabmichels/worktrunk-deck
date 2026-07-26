@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { useBusy } from "@/hooks/useBusy";
 import { useConfig } from "@/hooks/useConfig";
 import * as ipc from "@/lib/ipc";
-import type { DeckConfig, DevCommand, RootValidation, Theme } from "@/lib/types";
+import type { DeckConfig, DevCommand, RootValidation, TerminalChoice, Theme } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** Rejects anything that could let a dev-server `cwd` escape the worktree it belongs to. */
@@ -50,12 +50,35 @@ export function SettingsModal({
   const [rootValidation, setRootValidation] = useState<RootValidation | null>(null);
   const [validating, setValidating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [terminals, setTerminals] = useState<TerminalChoice[] | null>(null);
+  const [customTerminal, setCustomTerminal] = useState(false);
 
   // Re-seed the draft from the persisted config every time the modal opens, so a Cancel
   // (or simply closing without saving) never leaks a stale edit into the next open.
   useEffect(() => {
     if (open) setDraft(config);
   }, [open, config]);
+
+  // Detect installed terminals each time the modal opens rather than once at startup — people
+  // install a terminal and come straight back here to select it.
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    ipc
+      .listTerminals()
+      .then((found) => {
+        if (!alive) return;
+        setTerminals(found);
+        // A saved value the catalogue does not recognise is a hand-typed executable, so the
+        // free-text field has to reappear rather than the choice silently resetting to auto.
+        const saved = config.externalTerminal?.trim();
+        setCustomTerminal(!!saved && !found.some((t) => t.id === saved));
+      })
+      .catch(() => alive && setTerminals([]));
+    return () => {
+      alive = false;
+    };
+  }, [open, config.externalTerminal]);
 
   // Live "Workspace OK — N repos found" for the scan root (REQ-13).
   useEffect(() => {
@@ -384,20 +407,13 @@ export function SettingsModal({
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="external-terminal">Which terminal (optional)</Label>
-              <Input
-                id="external-terminal"
-                value={draft.externalTerminal ?? ""}
-                onChange={(e) => patch({ externalTerminal: e.target.value || undefined })}
-                placeholder="Auto-detect (e.g. wt, iterm2, warp, gnome-terminal)"
-                className="font-mono text-[12px]"
-              />
-              <p className="text-muted-foreground text-[11px]">
-                Leave empty to auto-detect. Also used by the card menu's "Run externally", whether
-                or not the toggle above is on.
-              </p>
-            </div>
+            <TerminalPicker
+              terminals={terminals}
+              value={draft.externalTerminal}
+              custom={customTerminal}
+              onCustomChange={setCustomTerminal}
+              onChange={(v) => patch({ externalTerminal: v })}
+            />
           </section>
 
           {/* Confirm destructive — REQ-12 */}
@@ -442,5 +458,102 @@ export function SettingsModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Radix reserves the empty string for "no value", so the two meta-options need sentinels of
+// their own. They are never persisted — "auto" saves `undefined`, "custom" saves what you type.
+const AUTO = "__auto__";
+const CUSTOM = "__custom__";
+
+/**
+ * Picks the terminal for "Run externally" from what is actually installed.
+ *
+ * This used to be a text field, which asked the user to know an executable name they had no
+ * way to check — and a wrong guess failed silently. The backend probes the disk instead, so
+ * every option here is one that exists on this machine. Free text stays available for
+ * terminals the catalogue has never heard of.
+ */
+function TerminalPicker({
+  terminals,
+  value,
+  custom,
+  onCustomChange,
+  onChange,
+}: {
+  terminals: TerminalChoice[] | null;
+  value: string | undefined;
+  custom: boolean;
+  onCustomChange: (custom: boolean) => void;
+  onChange: (value: string | undefined) => void;
+}) {
+  const saved = value?.trim() ?? "";
+  const installed = terminals?.filter((t) => t.available) ?? [];
+  const selected = terminals?.find((t) => t.id === saved);
+
+  const current = custom ? CUSTOM : selected ? selected.id : AUTO;
+
+  function pick(next: string) {
+    if (next === AUTO) {
+      onCustomChange(false);
+      onChange(undefined);
+    } else if (next === CUSTOM) {
+      onCustomChange(true);
+      onChange(undefined);
+    } else {
+      onCustomChange(false);
+      onChange(next);
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor="external-terminal">Which terminal</Label>
+      <Select value={current} onValueChange={pick} disabled={terminals === null}>
+        <SelectTrigger id="external-terminal">
+          <SelectValue placeholder="Detecting…" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={AUTO}>
+            Automatic{installed[0] ? ` — ${installed[0].label}` : ""}
+          </SelectItem>
+          {installed.map((t) => (
+            <SelectItem key={t.id} value={t.id}>
+              {t.label}
+            </SelectItem>
+          ))}
+          {/* A terminal that was selected and has since been uninstalled must stay in the list,
+              or the dropdown would silently show something the config does not say. */}
+          {selected && !selected.available && (
+            <SelectItem value={selected.id}>{selected.label} — not installed</SelectItem>
+          )}
+          <SelectItem value={CUSTOM}>Other…</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {custom && (
+        <Input
+          value={saved}
+          onChange={(e) => onChange(e.target.value || undefined)}
+          placeholder="Executable name or full path"
+          className="font-mono text-[12px]"
+          autoFocus
+        />
+      )}
+
+      <p className="text-muted-foreground text-[11px]">
+        {custom
+          ? "Launched in the worktree directory. Most terminals start in the directory they inherit; one that needs a flag instead will open at the wrong place."
+          : selected?.path
+            ? selected.path
+            : selected && !selected.available
+              ? "This terminal is no longer installed — pick another, or Automatic."
+              : terminals === null
+                ? "Looking for installed terminals…"
+                : installed.length === 0
+                  ? "No known terminal found. Choose \"Other…\" and name one."
+                  : `${installed.length} found. Also used by the card menu's "Run externally", whether or not the toggle above is on.`}
+      </p>
+    </div>
   );
 }

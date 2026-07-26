@@ -6,6 +6,7 @@ mod git;
 mod gitwt;
 mod process;
 mod pty;
+mod terminals;
 
 use std::sync::Arc;
 
@@ -46,6 +47,7 @@ pub fn run() {
             commands::open_url,
             commands::open_in_file_manager,
             commands::run_external,
+            commands::list_terminals,
             commands::pty_open,
             commands::pty_write,
             commands::pty_resize,

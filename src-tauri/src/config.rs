@@ -432,7 +432,7 @@ pub fn locate_gitwt(config: &DeckConfig) -> DeckResult<PathBuf> {
     }
 
     // 2. PATH.
-    if let Some(p) = search_path(BIN) {
+    if let Some(p) = crate::process::which(BIN) {
         return Ok(p);
     }
 
@@ -453,13 +453,6 @@ pub fn locate_gitwt(config: &DeckConfig) -> DeckResult<PathBuf> {
         "could not find `{BIN}` on PATH or in the usual install directories. \
          Install worktrunk (https://worktrunk.dev), or set the git-wt path in Settings."
     )))
-}
-
-fn search_path(bin: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(bin))
-        .find(|c| c.is_file())
 }
 
 fn common_install_dirs() -> Vec<PathBuf> {

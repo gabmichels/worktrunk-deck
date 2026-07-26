@@ -91,7 +91,8 @@ src-tauri/src/
   git.rs                 the ONLY place that calls git; read-only log + status
   pty.rs                 terminal sessions (portable-pty)
   config.rs              config persistence, repo discovery, git-wt resolution
-  external.rs            open in editor / file manager / OS terminal
+  external.rs            open in editor / file manager / browser
+  terminals.rs           the per-OS terminal catalogue: detect it, then launch it
   commands.rs            the #[tauri::command] surface — thin, no logic
 test/fixtures/           recorded worktrunk output, sanitized
 specs/v1/                the specification this was built from
@@ -198,6 +199,13 @@ commit.
   repo duplicates.
 - **A scan root that is itself a repo** resolves to that one repo rather than scanning children —
   that is how drilling into a single project works.
+- **`process::command` hides the window; `windowed_command` shows it.** `CREATE_NO_WINDOW` on a
+  Windows *console* program means no console at all, so a shell spawned with it runs headless —
+  invisible, and impossible to type into. Anything the user is meant to see (an external
+  terminal) must use `windowed_command`; anything they should not (`git-wt`, `git`) must not.
+- **A terminal in `terminals.rs` must be detected, not assumed.** Entries are probed on disk and
+  only offered in Settings if found. Adding one means writing both its `locate` and its `launch`
+  — a start directory is spelled differently by almost every terminal.
 - **PTY tests need a terminal-like handshake.** PowerShell's PSReadLine emits `ESC[6n` and blocks
   until something answers; xterm.js does this in the app, so the tests do it too. If a PTY test
   hangs with only that escape sequence captured, that is why.

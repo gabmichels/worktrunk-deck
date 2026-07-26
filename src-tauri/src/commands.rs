@@ -11,6 +11,7 @@ use crate::external;
 use crate::git;
 use crate::gitwt::{self, CliResult, RawSnapshot, Subcommand};
 use crate::pty::{self, PtyRegistry};
+use crate::terminals;
 
 /* ------------------------------------------------------------------ config */
 
@@ -186,6 +187,15 @@ pub fn open_url(url: String) -> DeckResult<()> {
 #[tauri::command]
 pub fn open_in_file_manager(path: String) -> DeckResult<()> {
     external::open_in_file_manager(&path)
+}
+
+/// The terminals this build knows about, each flagged with whether it is installed here.
+///
+/// Detection happens in Rust rather than the UI because it is a filesystem probe: the webview
+/// cannot see `PATH`, `/Applications`, or `%ProgramFiles%`.
+#[tauri::command]
+pub fn list_terminals() -> Vec<terminals::TerminalChoice> {
+    terminals::list()
 }
 
 /// Launches the repo's dev command in the OS terminal instead of the integrated one (REQ-8).

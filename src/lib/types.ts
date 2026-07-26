@@ -81,7 +81,11 @@ export interface DeckConfig {
   gitWtPath?: string;
   /** 0 = off; the deck still refreshes on focus and on demand (REQ-11). */
   autoRefreshMs: number;
-  /** OS-specific terminal choice for "Run externally" (REQ-8). */
+  /**
+   * Which terminal "Run externally" should use (REQ-8) — a {@link TerminalChoice} id, or any
+   * executable name for a terminal the catalogue does not know. Absent means "whichever is
+   * installed".
+   */
   externalTerminal?: string;
   /**
    * When true, "Open terminal" and "Run dev" launch the OS terminal instead of the built-in
@@ -105,6 +109,16 @@ export interface DeckConfig {
    * the repo list so hiding is reversible without losing configuration.
    */
   hiddenRepos?: string[];
+}
+
+/** One terminal the backend knows how to launch, and whether this machine has it. */
+export interface TerminalChoice {
+  /** Stored in {@link DeckConfig.externalTerminal}. */
+  id: string;
+  label: string;
+  available: boolean;
+  /** Where it was found; `null` when it is not installed. */
+  path: string | null;
 }
 
 export interface DevCommand {
