@@ -493,6 +493,11 @@ function TerminalPicker({
 
   const current = custom ? CUSTOM : selected ? selected.id : AUTO;
 
+  async function browse() {
+    const picked = await openDialog({ directory: false, multiple: false });
+    if (typeof picked === "string") onChange(picked);
+  }
+
   function pick(next: string) {
     if (next === AUTO) {
       onCustomChange(false);
@@ -532,13 +537,28 @@ function TerminalPicker({
       </Select>
 
       {custom && (
-        <Input
-          value={saved}
-          onChange={(e) => onChange(e.target.value || undefined)}
-          placeholder="Executable name or full path"
-          className="font-mono text-[12px]"
-          autoFocus
-        />
+        <div className="flex gap-2">
+          <Input
+            value={saved}
+            onChange={(e) => onChange(e.target.value || undefined)}
+            placeholder="Executable name or full path"
+            className="font-mono text-[12px]"
+            autoFocus
+          />
+          {/* Nobody should have to know an executable's path by heart — and a typo here fails
+              at launch time, long after the mistake. */}
+          <Button variant="outline" size="sm" onClick={() => void browse()}>
+            <FolderOpen className="size-3.5" aria-hidden />
+            Browse
+          </Button>
+        </div>
+      )}
+
+      {selected && selected.available && !selected.takesCommand && (
+        <p className="text-warn text-[11px]">
+          {selected.label} can be opened at a worktree but not handed a command, so "Run dev"
+          will use {installed.find((t) => t.takesCommand)?.label ?? "another terminal"} instead.
+        </p>
       )}
 
       <p className="text-muted-foreground text-[11px]">

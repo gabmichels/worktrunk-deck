@@ -119,6 +119,8 @@ export interface TerminalChoice {
   available: boolean;
   /** Where it was found; `null` when it is not installed. */
   path: string | null;
+  /** False for terminals that can be opened at a directory but not handed a command (Warp). */
+  takesCommand: boolean;
 }
 
 export interface DevCommand {

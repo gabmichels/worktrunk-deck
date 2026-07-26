@@ -236,6 +236,7 @@ const TerminalChoiceSchema = z.object({
   label: z.string(),
   available: z.boolean(),
   path: z.string().nullable(),
+  takesCommand: z.boolean(),
 });
 
 /**

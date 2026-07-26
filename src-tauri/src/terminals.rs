@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::error::{DeckError, DeckResult};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 use crate::process::command;
 use crate::process::windowed_command;
 
@@ -36,6 +36,9 @@ pub struct TerminalChoice {
     pub available: bool,
     /// Where it was found — shown as the subtitle, and useful when two installs disagree.
     pub path: Option<String>,
+    /// Whether it can be handed a command to run. Surfaced so Settings can say up front that
+    /// "Run dev" will fall back, rather than letting it surprise the user later.
+    pub takes_command: bool,
 }
 
 /// Every terminal this build knows about on the current OS, in preference order.
@@ -49,6 +52,7 @@ pub fn list() -> Vec<TerminalChoice> {
                 label: e.label.to_string(),
                 available: path.is_some(),
                 path: path.map(|p| p.to_string_lossy().into_owned()),
+                takes_command: e.takes_command,
             }
         })
         .collect()
@@ -149,6 +153,8 @@ mod platform {
         entry("git-bash", "Git Bash", true),
         entry("wezterm", "WezTerm", true),
         entry("alacritty", "Alacritty", true),
+        // Warp is driven through its URI scheme, which cannot carry a command (warp#5859).
+        entry("warp", "Warp", false),
     ];
 
     pub fn locate(id: &str) -> Option<PathBuf> {
@@ -162,6 +168,9 @@ mod platform {
             "git-bash" => program_files("Git\\git-bash.exe"),
             "wezterm" => which("wezterm-gui.exe").or_else(|| which("wezterm.exe")),
             "alacritty" => which("alacritty.exe"),
+            "warp" => program_files("Programs\\Warp\\warp.exe")
+                .or_else(|| program_files("Warp\\warp.exe"))
+                .or_else(|| which("warp.exe")),
             _ => None,
         }
     }
@@ -184,6 +193,12 @@ mod platform {
     }
 
     pub fn launch(entry: &Entry, path: &Path, cwd: &str, dev: Option<&str>) -> DeckResult<()> {
+        // Warp has no command-line interface for a start directory; the documented way in is
+        // its URI scheme, so it never runs `path` as a program.
+        if entry.id == "warp" {
+            return open_warp(cwd);
+        }
+
         let mut c = windowed_command(path);
         // Also the fallback for anything that ignores its flags: a terminal that inherits our
         // working directory lands in the right place regardless.
@@ -244,6 +259,42 @@ mod platform {
     fn ps_quote(s: &str) -> String {
         s.replace('\'', "''")
     }
+
+    /// Opens Warp at `cwd` through `warp://action/new_window`.
+    ///
+    /// The path must be a `file:///` URL, not a bare Windows path: Warp parses the parameter as
+    /// a URL, so `C:\...` is read as a scheme called `c`, the parse fails, and the directory is
+    /// silently dropped in favour of the home folder — the same bug Warp's own Explorer
+    /// integration has (warp#9844).
+    fn open_warp(cwd: &str) -> DeckResult<()> {
+        let uri = format!("warp://action/new_window?path={}", file_url(cwd));
+        // `start` is a cmd builtin, so cmd is the launcher — and it must stay invisible, which
+        // is why this is `command` and not `windowed_command`. The empty "" is start's title
+        // argument; without it a quoted URL would be taken as the window title.
+        command("cmd.exe")
+            .args(["/c", "start", "", &uri])
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| DeckError::Io(format!("could not open Warp: {e}")))
+    }
+}
+
+/// A local path as a `file:///` URL, percent-encoding everything outside the unreserved set.
+///
+/// Deliberately conservative: `?`, `#` and `%` would otherwise be read as URL syntax, and a
+/// space silently truncates the parameter.
+#[cfg(not(target_os = "macos"))]
+fn file_url(path: &str) -> String {
+    let mut out = String::from("file:///");
+    for byte in path.replace('\\', "/").bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 /* --------------------------------------------------------------------- macOS */
@@ -397,16 +448,29 @@ mod platform {
         entry("xfce4-terminal", "Xfce Terminal", true),
         entry("xterm", "xterm", true),
         entry("x-terminal-emulator", "System default", true),
+        // Driven through its URI scheme, which cannot carry a command (warp#5859).
+        entry("warp", "Warp", false),
     ];
 
     pub fn locate(id: &str) -> Option<PathBuf> {
         match id {
             "wezterm" => which("wezterm-gui").or_else(|| which("wezterm")),
+            "warp" => which("warp-terminal").or_else(|| which("warp")),
             other => which(other),
         }
     }
 
     pub fn launch(entry: &Entry, path: &Path, cwd: &str, dev: Option<&str>) -> DeckResult<()> {
+        // Warp takes no start-directory flag; its URI scheme is the documented way in, and
+        // xdg-open hands it to whatever registered the `warp://` handler.
+        if entry.id == "warp" {
+            return windowed_command("xdg-open")
+                .arg(format!("warp://action/new_window?path={}", file_url(cwd)))
+                .spawn()
+                .map(|_| ())
+                .map_err(|e| DeckError::Io(format!("could not open Warp: {e}")));
+        }
+
         let mut c = windowed_command(path);
         c.current_dir(cwd);
         let shell = dev.map(keep_open);
@@ -553,5 +617,24 @@ mod tests {
     #[test]
     fn quoting_survives_a_path_with_a_quote_in_it() {
         assert_eq!(sh_quote("/tmp/it's here"), r"'/tmp/it'\''s here'");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_path_becomes_a_file_url() {
+        // A bare `C:\...` is what Warp's own Explorer integration sends, and what it then
+        // silently drops — so the drive letter has to survive as part of the *path*.
+        assert_eq!(file_url(r"C:\Workspace\deck"), "file:///C:/Workspace/deck");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn characters_that_would_be_read_as_url_syntax_are_escaped() {
+        assert_eq!(
+            file_url(r"C:\my repo\a#b?c"),
+            "file:///C:/my%20repo/a%23b%3Fc"
+        );
+        // Non-ASCII must survive as UTF-8 bytes rather than being dropped.
+        assert_eq!(file_url(r"C:\ü"), "file:///C:/%C3%BC");
     }
 }
