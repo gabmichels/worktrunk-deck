@@ -11,6 +11,13 @@ function wt(overrides: Partial<Worktree>): Worktree {
     path: "C:/repos/demo-app.feat-x",
     isMain: false,
     git: "clean",
+    changes: {
+      staged: false,
+      modified: false,
+      untracked: false,
+      renamed: false,
+      deleted: false,
+    },
     diff: { added: 0, deleted: 0 },
     main: { ahead: 0, behind: 0 },
     remote: null,

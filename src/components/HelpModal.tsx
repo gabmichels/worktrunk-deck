@@ -31,11 +31,17 @@ export function HelpModal({
             </h3>
             <dl className="space-y-2">
               <LegendRow icon={<StatusDot tone="ok" />} term="Clean">
-                No uncommitted changes.
+                Nothing to commit — no changes, and no untracked files.
+              </LegendRow>
+              <LegendRow icon={<StatusDot tone="untracked" />} term="Untracked only">
+                New files git is not tracking, but nothing already committed has been edited —
+                often a <code className="font-mono">.config/</code> directory, build output or a
+                scratch file. Separated from "dirty" because it does not mean work in progress.
               </LegendRow>
               <LegendRow icon={<StatusDot tone="dirty" />} term="Dirty">
-                Staged, modified, untracked, renamed, or deleted files present. The diff counts
-                next to the branch show the added/deleted line totals.
+                Files that are already committed have been staged, modified, renamed or deleted.
+                The diff counts next to the branch are added/deleted line totals for tracked
+                changes only.
               </LegendRow>
               <LegendRow term="Ahead/behind (e.g. 2/1)">
                 Commits ahead / behind the repo's default branch (top number) and the tracking

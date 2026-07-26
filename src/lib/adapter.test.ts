@@ -42,10 +42,77 @@ describe("toRepoResult — real worktrunk output", () => {
     expect(main.url).toBe("http://localhost:12107");
   });
 
-  it("treats modified-or-untracked as dirty and carries the diff counts", () => {
+  it("treats edits to tracked files as dirty and carries the diff counts", () => {
     const main = result.worktrees[0]!;
     expect(main.git).toBe("dirty");
     expect(main.diff).toEqual({ added: 363, deleted: 66 });
+  });
+
+  /**
+   * The third fixture worktree has untracked files and nothing else — the case that made the
+   * old two-state indicator misleading, since it reported "dirty" for a worktree where nothing
+   * committed had been touched.
+   */
+  it("reports untracked-only worktrees as untracked, not dirty", () => {
+    const nested = result.worktrees[2]!;
+    expect(nested.changes).toEqual({
+      staged: false,
+      modified: false,
+      untracked: true,
+      renamed: false,
+      deleted: false,
+    });
+    expect(nested.git).toBe("untracked");
+  });
+
+  it("exposes the individual flags so the UI can name what is present", () => {
+    expect(result.worktrees[0]!.changes).toEqual({
+      staged: false,
+      modified: true,
+      untracked: true,
+      renamed: false,
+      deleted: false,
+    });
+  });
+
+  it("counts any tracked change as dirty, even alongside untracked files", () => {
+    const cases = [
+      { staged: true },
+      { modified: true },
+      { renamed: true },
+      { deleted: true },
+    ];
+    for (const tracked of cases) {
+      const [w] = toRepoResult(
+        okRepo([
+          {
+            branch: "feat/x",
+            path: "C:/repos/demo-app.feat-x",
+            working_tree: { untracked: true, ...tracked },
+          },
+        ]),
+      ).worktrees;
+      expect(w!.git).toBe("dirty");
+    }
+  });
+
+  it("is clean only when nothing at all is present", () => {
+    const [w] = toRepoResult(
+      okRepo([
+        {
+          branch: "feat/x",
+          path: "C:/repos/demo-app.feat-x",
+          working_tree: {
+            staged: false,
+            modified: false,
+            untracked: false,
+            renamed: false,
+            deleted: false,
+          },
+        },
+      ]),
+    ).worktrees;
+    expect(w!.git).toBe("clean");
   });
 
   it("defaults `main` ahead/behind to 0/0 when worktrunk omits it (the main worktree)", () => {

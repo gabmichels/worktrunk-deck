@@ -1,9 +1,11 @@
 import { cn } from "@/lib/utils";
 
-export type DotTone = "ok" | "dirty" | "live" | "idle" | "error";
+export type DotTone = "ok" | "untracked" | "dirty" | "live" | "idle" | "error";
 
 const TONE_CLASS: Record<DotTone, string> = {
   ok: "bg-[var(--ok)]",
+  // Distinct from both clean and dirty: something is here, but nothing committed was touched.
+  untracked: "bg-[var(--muted-foreground)]",
   dirty: "bg-[var(--warn)]",
   live: "bg-[var(--live)]",
   idle: "bg-muted-foreground/40",

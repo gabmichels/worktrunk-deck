@@ -9,7 +9,7 @@ import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { useState } from "react";
 
 import { CommitList } from "@/components/CommitList";
-import { StatusDot } from "@/components/StatusDot";
+import { StatusDot, type DotTone } from "@/components/StatusDot";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useCommits } from "@/hooks/useCommits";
 import type { Worktree } from "@/lib/types";
@@ -115,17 +115,46 @@ function BranchCell({ worktree: w }: { worktree: Worktree }) {
   );
 }
 
-function GitCell({ worktree: w }: { worktree: Worktree }) {
-  const dirty = w.git === "dirty";
-  const detail = dirty
-    ? `+${w.diff.added} / −${w.diff.deleted} uncommitted`
-    : "No uncommitted changes";
+const GIT_LABEL: Record<Worktree["git"], string> = {
+  clean: "clean",
+  untracked: "untracked",
+  dirty: "dirty",
+};
 
+const GIT_TONE: Record<Worktree["git"], DotTone> = {
+  clean: "ok",
+  untracked: "untracked",
+  dirty: "dirty",
+};
+
+/** Spells out exactly which kinds of change are present, in git's own vocabulary. */
+function describeChanges(w: Worktree): string {
+  const parts: string[] = [];
+  if (w.changes.staged) parts.push("staged");
+  if (w.changes.modified) parts.push("modified");
+  if (w.changes.deleted) parts.push("deleted");
+  if (w.changes.renamed) parts.push("renamed");
+  if (w.changes.untracked) parts.push("untracked");
+  if (parts.length === 0) return "Nothing to commit — the working tree is clean.";
+
+  const listed = `${parts.join(", ")} file${parts.length > 1 ? "s" : ""}`;
+  // The diff counts cover tracked changes only, so quoting them next to an untracked-only
+  // worktree would be misleading — that is exactly the confusion this cell had before.
+  const counts =
+    w.git === "dirty" ? ` · +${w.diff.added} / −${w.diff.deleted}` : "";
+  const nuance =
+    w.git === "untracked"
+      ? " — nothing committed here has been edited, these are new files git is not tracking."
+      : "";
+  return `${listed}${counts}${nuance}`;
+}
+
+function GitCell({ worktree: w }: { worktree: Worktree }) {
   return (
-    <Tooltip content={detail}>
+    <Tooltip content={describeChanges(w)}>
       <div className="hidden items-center gap-1.5 md:flex">
-        <StatusDot tone={dirty ? "dirty" : "ok"} />
-        <span className="text-[12px]">{dirty ? "dirty" : "clean"}</span>
+        <StatusDot tone={GIT_TONE[w.git]} />
+        <span className="text-[12px]">{GIT_LABEL[w.git]}</span>
       </div>
     </Tooltip>
   );

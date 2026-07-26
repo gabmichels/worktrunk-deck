@@ -10,7 +10,13 @@
  * Every read below is defensive for that reason, and `list.malformed.json` exists to prove it.
  */
 import type { RawRepoResult, RawSnapshot } from "./ipc";
-import type { DeckSnapshot, RepoResult, Worktree } from "./types";
+import type {
+  DeckSnapshot,
+  GitState,
+  RepoResult,
+  WorkingTreeChanges,
+  Worktree,
+} from "./types";
 
 /* ------------------------------------------------------- defensive readers */
 
@@ -69,6 +75,7 @@ export function toWorktree(
   const workingTree = obj(raw.working_tree);
   const commit = obj(raw.commit);
   const diff = obj(workingTree.diff);
+  const changes = toChanges(workingTree);
 
   return {
     repo,
@@ -76,7 +83,8 @@ export function toWorktree(
     branch: str(raw.branch),
     path: str(raw.path),
     isMain: bool(raw.is_main),
-    git: isDirty(workingTree) ? "dirty" : "clean",
+    git: gitState(changes),
+    changes,
     diff: { added: num(diff.added), deleted: num(diff.deleted) },
     main: aheadBehind(raw.main),
     remote: isRecord(raw.remote) ? aheadBehind(raw.remote) : null,
@@ -90,18 +98,28 @@ export function toWorktree(
   };
 }
 
+function toChanges(workingTree: Record<string, unknown>): WorkingTreeChanges {
+  return {
+    staged: bool(workingTree.staged),
+    modified: bool(workingTree.modified),
+    untracked: bool(workingTree.untracked),
+    renamed: bool(workingTree.renamed),
+    deleted: bool(workingTree.deleted),
+  };
+}
+
 /**
- * Dirty means *any* pending change. worktrunk reports the five states separately; the deck
- * collapses them to one dot and leaves the detail to the diff counts (REQ-2).
+ * Collapses the five flags into the three states the card renders (REQ-2).
+ *
+ * Untracked-only is its own state rather than "dirty". In practice a great many worktrees are
+ * untracked-only — a `.config/` directory, build output, a stray scratch file — and reporting
+ * those identically to real edits trains people to ignore the indicator entirely.
  */
-function isDirty(workingTree: Record<string, unknown>): boolean {
-  return (
-    bool(workingTree.staged) ||
-    bool(workingTree.modified) ||
-    bool(workingTree.untracked) ||
-    bool(workingTree.renamed) ||
-    bool(workingTree.deleted)
-  );
+function gitState(changes: WorkingTreeChanges): GitState {
+  const tracked =
+    changes.staged || changes.modified || changes.renamed || changes.deleted;
+  if (tracked) return "dirty";
+  return changes.untracked ? "untracked" : "clean";
 }
 
 /**

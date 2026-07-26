@@ -6,7 +6,24 @@
  * so a schema change has one home (NFR-6).
  */
 
-export type GitState = "clean" | "dirty";
+/**
+ * Working-tree state, in increasing order of "you have work here".
+ *
+ * `untracked` is deliberately its own level rather than folded into `dirty`. A worktree whose
+ * only change is an untracked `.config/` or a stray build artifact is *not* in the same
+ * situation as one with edits to committed files, and calling both "dirty" sends people hunting
+ * for changes they never made.
+ */
+export type GitState = "clean" | "untracked" | "dirty";
+
+/** The individual flags worktrunk reports, kept so the UI can say precisely what is going on. */
+export interface WorkingTreeChanges {
+  staged: boolean;
+  modified: boolean;
+  untracked: boolean;
+  renamed: boolean;
+  deleted: boolean;
+}
 
 /** Per-repo error isolation: one bad repo must not break the view (REQ-15). */
 export type RepoLoad = "ok" | "unreadable";
@@ -21,6 +38,8 @@ export interface Worktree {
   path: string;
   isMain: boolean;
   git: GitState;
+  /** Which kinds of change are present — drives the card's label and tooltip. */
+  changes: WorkingTreeChanges;
   diff: { added: number; deleted: number };
   /** Ahead/behind the repo's default branch. */
   main: { ahead: number; behind: number };
