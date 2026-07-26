@@ -84,8 +84,11 @@ jobs:
 
             No macOS build is published yet. It compiles fine, but an unsigned bundle fails
             Gatekeeper with "worktrunk-deck is damaged and can't be opened" — which looks like a
-            broken download rather than a security prompt. Signing needs an Apple Developer
-            Program membership; until that exists, build from source:
+            broken download rather than a security prompt. Homebrew removed `--no-quarantine` in
+            5.1, so a cask is no longer a way around it either.
+
+            Building from source avoids the problem entirely: a binary you compiled locally was
+            never downloaded, so it is never quarantined.
 
             ```sh
             git clone https://github.com/gabmichels/worktrunk-deck.git

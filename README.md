@@ -10,6 +10,28 @@ for worktree and port state; the deck reimplements none of it.
 
 ![The dashboard listing three repositories, their worktrees, and a live dev server](./docs/screenshot.png)
 
+## Why
+
+Git worktrees are the cleanest way to work on several things at once. Each branch gets its own
+directory, so you stop stashing, you stop rebuilding after every switch, and two pieces of work
+never touch the same files. With coding agents in the mix that matters more, not less — several
+tracks can genuinely run at the same time.
+
+The problem is that worktrees are invisible. `git worktree list` tells you they exist; it does
+not tell you which ones have uncommitted work, which are behind main, which dev server is
+actually running and on what port, or which one you left half-finished on Tuesday. Past three or
+four of them, across a few repos, you lose the thread — and the isolation that made parallel
+work possible is exactly what makes it hard to see.
+
+[worktrunk](https://worktrunk.dev) already solves the mechanics: scoped worktrees, deterministic
+per-branch ports, setup hooks, clean merges. It is a CLI, so answering "what is going on right
+now?" means running commands in a loop.
+
+This is the missing view. One screen showing every worktree across every repo, what state each
+is in, and which ones are live — plus the ability to act on them without leaving it: create a
+worktree, run its dev server in an embedded terminal, merge it back, remove it. The point is to
+keep parallel work legible, so you can pick up a track without disturbing the others.
+
 ## Status
 
 **There are no downloadable builds yet — you install it by building from source.** That takes
@@ -17,8 +39,8 @@ about five minutes and the steps are below.
 
 The app is feature-complete for v1 and CI builds it on Windows, macOS and Linux. What is missing
 is the release side: nothing has been tagged, so there are no installers to download. When that
-happens it will cover **Windows and Linux**; macOS stays build-from-source until there is a
-signing certificate, for the reason in [Known gaps](#known-gaps).
+happens it will cover **Windows and Linux**; macOS stays build-from-source, for the reason in
+[On code signing](#on-code-signing).
 
 ## Requirements
 
@@ -132,6 +154,39 @@ allocates ports itself.
   staleness indicator.
 - **One unreadable repo never breaks the others.** It renders as an inline error card.
 
+## On code signing
+
+Signing certificates cost money and are tied to a legal identity, which is awkward for a project
+like this. Here is the state of play per platform, so you know what to expect rather than being
+surprised by your OS.
+
+**Linux** — nothing to sign. Mark an AppImage executable with `chmod +x` and run it; `.deb`
+installs normally. No gatekeeping of any kind.
+
+**Windows** — SmartScreen shows *"Windows protected your PC"* on an unsigned installer. Choose
+**More info → Run anyway**. It is an honest warning about an unknown publisher, and it fades as a
+binary accumulates downloads. A certificate would remove it, but plenty of well-known open-source
+tools ship exactly like this.
+
+**macOS** — the difficult one, and it recently got harder. An unsigned bundle fails Gatekeeper
+with *"worktrunk-deck is damaged and can't be opened"*, which is a misleading message: nothing is
+damaged, the app simply is not notarized. The usual escape hatch was
+`brew install --cask --no-quarantine`, but [Homebrew removed that
+flag](https://github.com/orgs/Homebrew/discussions/6537) in 5.1, so Homebrew is no longer a way
+around it either — unsigned casks now need the same manual step as a direct download:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/worktrunk-deck.app"
+```
+
+Given that, **building from source is the cleanest way to run this on macOS.** A binary you
+compiled locally was never downloaded, so it is never quarantined and Gatekeeper never objects.
+That is why published releases cover Windows and Linux only — see [Known gaps](#known-gaps).
+
+Proper signing and notarization need an Apple Developer Program membership (about $99/year) for
+macOS and a code-signing certificate for Windows. Both are on the table if the project warrants
+it; neither is a prerequisite for using it today.
+
 ## Development
 
 ```sh
@@ -165,12 +220,8 @@ pnpm tauri icon docs/icon-1024.png
 
 - **No published releases yet.** A tag-triggered workflow is ready to publish Windows and Linux
   installers, but nothing has been tagged, so building from source is currently the only way in.
-- **macOS will stay build-from-source for now.** It compiles fine — CI builds it on every push —
-  but an unsigned macOS bundle fails Gatekeeper with *"worktrunk-deck is damaged and can't be
-  opened"*, which reads as a corrupt download rather than a security prompt. Signing requires an
-  Apple Developer Program membership (the runners handle the build, so no Mac is needed — just
-  the certificate). Windows and Linux are shipped unsigned because their warnings are honest and
-  dismissible.
+- **macOS will stay build-from-source for now** — see [On code signing](#on-code-signing). It
+  compiles fine and CI builds it on every push; the obstacle is notarization, not the build.
 - **Manual testing has been Windows-only.** CI builds and runs the full suite on all three
   platforms, but nobody has yet clicked through the app on macOS or Linux. The integrated
   terminal and "Run externally" are the most likely places to find problems there.
