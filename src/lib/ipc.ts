@@ -60,6 +60,7 @@ const DeckConfigSchema = z.object({
   gitWtPath: z.string().optional(),
   autoRefreshMs: z.number(),
   externalTerminal: z.string().optional(),
+  preferExternalTerminal: z.boolean().optional(),
   confirmDestructive: z.boolean(),
   theme: z.enum(["system", "light", "dark"]),
   crossRepoGrouping: z.boolean(),

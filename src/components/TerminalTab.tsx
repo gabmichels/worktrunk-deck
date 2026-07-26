@@ -97,19 +97,35 @@ export function TerminalTab({ sessionId, active, exited }: TerminalTabProps) {
 
   // Fit whenever this pane becomes the active/visible one — a hidden pane has zero layout size,
   // so `fit()` while inactive would compute a bogus 0x0 and desync the PTY's idea of the size.
+  //
+  // Focus here too: a terminal opened from a card's action menu leaves the keyboard on that
+  // menu, so without this the pane looks ready but silently ignores typing.
+  //
+  // The delay is load-bearing, not defensive padding. Radix returns focus to the menu trigger
+  // when the dropdown closes, and that happens *after* this effect runs — focusing on the next
+  // frame would be immediately undone. Same story for the tab strip, where the tab button keeps
+  // focus after a click. Fitting is deferred with it because a pane that just became visible
+  // has no layout size for a frame or two.
   useEffect(() => {
     if (!active || !fitAddon || !term) return;
-    try {
-      fitAddon.fit();
-    } catch {
-      // Container may briefly have no size right at the visibility flip; harmless.
-    }
+    const timer = window.setTimeout(() => {
+      try {
+        fitAddon.fit();
+      } catch {
+        // Container may briefly have no size right at the visibility flip; harmless.
+      }
+      term.focus();
+    }, 80);
+    return () => window.clearTimeout(timer);
   }, [active, fitAddon, term]);
 
   return (
     <div
       className={cn("h-full w-full overflow-hidden bg-card p-2", !active && "hidden")}
       aria-hidden={!active}
+      // Clicking anywhere in the padding around the terminal should also hand it the keyboard,
+      // which xterm only does for clicks landing on its own element.
+      onMouseDown={() => term?.focus()}
     >
       <div ref={containerRef} className="h-full w-full" />
     </div>

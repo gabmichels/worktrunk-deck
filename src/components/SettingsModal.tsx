@@ -368,15 +368,36 @@ export function SettingsModal({
           </section>
 
           {/* External terminal — REQ-8 */}
-          <section className="space-y-1.5">
-            <Label htmlFor="external-terminal">External terminal (optional)</Label>
-            <Input
-              id="external-terminal"
-              value={draft.externalTerminal ?? ""}
-              onChange={(e) => patch({ externalTerminal: e.target.value || undefined })}
-              placeholder="Auto-detect (e.g. wt, iterm2, warp, gnome-terminal)"
-              className="font-mono text-[12px]"
-            />
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="pr-4">
+                <Label htmlFor="prefer-external-terminal">Use my default terminal</Label>
+                <p className="text-muted-foreground text-[11px]">
+                  "Open terminal" and "Run dev" launch your own terminal app instead of the
+                  built-in panel.
+                </p>
+              </div>
+              <Switch
+                id="prefer-external-terminal"
+                checked={draft.preferExternalTerminal === true}
+                onCheckedChange={(v) => patch({ preferExternalTerminal: v || undefined })}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="external-terminal">Which terminal (optional)</Label>
+              <Input
+                id="external-terminal"
+                value={draft.externalTerminal ?? ""}
+                onChange={(e) => patch({ externalTerminal: e.target.value || undefined })}
+                placeholder="Auto-detect (e.g. wt, iterm2, warp, gnome-terminal)"
+                className="font-mono text-[12px]"
+              />
+              <p className="text-muted-foreground text-[11px]">
+                Leave empty to auto-detect. Also used by the card menu's "Run externally", whether
+                or not the toggle above is on.
+              </p>
+            </div>
           </section>
 
           {/* Confirm destructive — REQ-12 */}

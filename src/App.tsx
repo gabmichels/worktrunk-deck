@@ -1,7 +1,7 @@
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useMemo, useState } from "react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 
 import { BusyBar } from "@/components/BusyBar";
 import { CliLogPanel } from "@/components/CliLogPanel";
@@ -18,10 +18,11 @@ import { TerminalSidebar, useTerminalSessions } from "@/components/TerminalSideb
 import { WorktreeActions } from "@/components/WorktreeActions";
 import { useCliRun } from "@/hooks/useCliRun";
 import { BusyProvider, useBusy } from "@/hooks/useBusy";
-import { ConfigProvider, useConfig } from "@/hooks/useConfig";
+import { ConfigProvider, messageOf, useConfig } from "@/hooks/useConfig";
 import { useTheme } from "@/hooks/useTheme";
 import { useWorktrees } from "@/hooks/useWorktrees";
 import { allWorktrees } from "@/lib/adapter";
+import * as ipc from "@/lib/ipc";
 import { groupByFeature, isIsolated, matchesFilter } from "@/lib/grouping";
 import type { Worktree } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -144,14 +145,28 @@ function Deck() {
     });
   };
 
+  /**
+   * With `preferExternalTerminal` on, the OS terminal *is* the user's terminal and the embedded
+   * one is never opened — doing both would leave a stray PTY running behind a panel they do not
+   * look at. The sidebar stays available; nothing routes to it automatically.
+   */
+  const useExternalTerminal = config.preferExternalTerminal === true;
+
+  const launchExternal = (w: Worktree, label: string) =>
+    void track(label, () => ipc.runExternal(w.repoPath, w.path)).catch((e: unknown) =>
+      toast.error("Could not open your terminal", { description: messageOf(e) }),
+    );
+
   /** Opening a terminal should reveal the sidebar — otherwise the tab appears nowhere. */
   // Spawning a PTY is usually instant but can stall briefly on a cold shell profile, which
   // would otherwise look like the click did nothing.
   const openTerminal = (w: Worktree) => {
+    if (useExternalTerminal) return launchExternal(w, "Opening terminal");
     setTerminalOpen(true);
     void track("Opening terminal", () => terminals.openTerminal(w));
   };
   const runDev = (w: Worktree) => {
+    if (useExternalTerminal) return launchExternal(w, "Starting dev server");
     setTerminalOpen(true);
     void track("Starting dev server", () => terminals.runDev(w));
   };

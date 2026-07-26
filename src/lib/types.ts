@@ -64,6 +64,12 @@ export interface DeckConfig {
   autoRefreshMs: number;
   /** OS-specific terminal choice for "Run externally" (REQ-8). */
   externalTerminal?: string;
+  /**
+   * When true, "Open terminal" and "Run dev" launch the OS terminal instead of the built-in
+   * one (REQ-8). Some people want their own shell, profile and font; the embedded terminal
+   * stays available either way.
+   */
+  preferExternalTerminal?: boolean;
   confirmDestructive: boolean;
   theme: Theme;
   /** Display-only cross-repo grouping (REQ-4); off by default. */

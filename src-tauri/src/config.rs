@@ -45,6 +45,9 @@ pub struct DeckConfig {
     pub auto_refresh_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_terminal: Option<String>,
+    /// Route "Open terminal" / "Run dev" to the OS terminal instead of the embedded one (REQ-8).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_external_terminal: Option<bool>,
     #[serde(default = "default_confirm_destructive")]
     pub confirm_destructive: bool,
     #[serde(default = "default_theme")]
@@ -82,6 +85,7 @@ impl Default for DeckConfig {
             git_wt_path: None,
             auto_refresh_ms: default_auto_refresh_ms(),
             external_terminal: None,
+            prefer_external_terminal: None,
             confirm_destructive: default_confirm_destructive(),
             theme: default_theme(),
             cross_repo_grouping: false,

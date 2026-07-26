@@ -389,7 +389,14 @@ export function TerminalSidebar({
           </div>
         ) : (
           sessions.map((s) => (
-            <div key={s.id} className="absolute inset-0">
+            // The wrapper itself must be hidden, not just its contents. These are stacked
+            // `absolute inset-0` boxes; an inactive one with a display:none child is still a
+            // full-size transparent element on top of the active pane, and it swallows every
+            // click — including the one that would focus the terminal you are trying to type in.
+            <div
+              key={s.id}
+              className={cn("absolute inset-0", s.id !== activeId && "hidden")}
+            >
               <TerminalTab sessionId={s.id} active={s.id === activeId} exited={s.exited} />
             </div>
           ))

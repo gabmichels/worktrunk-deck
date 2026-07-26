@@ -11,6 +11,7 @@
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
 import { useEffect } from "react";
+import { toast } from "sonner";
 
 import { onPtyExit, onPtyOutput, ptyResize, ptyWrite } from "@/lib/ipc";
 import type { SessionId } from "@/lib/types";
@@ -65,8 +66,18 @@ export function usePty(
   // write to, so drop the subscription — the pane becomes read-only scrollback.
   useEffect(() => {
     if (!term || exited) return;
+    // Report a failed write once per session rather than per keystroke: if the session is gone,
+    // every subsequent key would otherwise raise its own toast. A silently dropped rejection
+    // here is worse than useless — it presents as "typing does nothing" with no explanation.
+    let reported = false;
     const disposable = term.onData((data) => {
-      void ptyWrite(sessionId, data);
+      ptyWrite(sessionId, data).catch((e: unknown) => {
+        if (reported) return;
+        reported = true;
+        const message = e instanceof Error ? e.message : String(e);
+        toast.error("Terminal input failed", { description: message });
+        term.write(`\r\n\x1b[31m[input failed: ${message}]\x1b[0m\r\n`);
+      });
     });
     return () => disposable.dispose();
   }, [sessionId, term, exited]);
