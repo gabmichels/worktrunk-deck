@@ -23,6 +23,9 @@ on:
 
 permissions:
   contents: write
+  # Required by attest-build-provenance to sign the attestation.
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -61,6 +64,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - uses: tauri-apps/tauri-action@v0
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -80,6 +84,27 @@ jobs:
               **More info → Run anyway**.
             - **Linux** — mark the AppImage executable: `chmod +x worktrunk-deck_*.AppImage`
 
+            ### Verifying what you downloaded
+
+            These builds carry no code-signing certificate, so verify them this way instead.
+
+            Checksums are published as `checksums-*.txt`:
+
+            ```sh
+            sha256sum -c checksums-ubuntu-22.04.txt      # Linux
+            ```
+            ```powershell
+            Get-FileHash .\worktrunk-deck_*_x64-setup.exe -Algorithm SHA256   # Windows
+            ```
+
+            Every artifact also has signed build provenance tying it to this repository, commit
+            and workflow run — stronger than a checksum, since it proves *where* the binary came
+            from rather than only that it is intact:
+
+            ```sh
+            gh attestation verify <file> --repo gabmichels/worktrunk-deck
+            ```
+
             ### macOS
 
             No macOS build is published yet. It compiles fine, but an unsigned bundle fails
@@ -97,3 +122,37 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # Neither of the next two steps depends on a paid certificate, which is the point: they are
+      # the trust signals available to an unsigned project. Checksums let anyone confirm the file
+      # they downloaded is the file that was published; provenance ties that file to this repo,
+      # this commit and this workflow run, verifiable with `gh attestation verify`.
+
+      - name: Publish SHA256 checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # tauri-action reports every artifact it uploaded; hashing those exact paths avoids
+          # guessing at bundle layouts, which differ per platform and per tauri version.
+          paths=$(echo '${{ steps.tauri.outputs.artifactPaths }}' | jq -r '.[]')
+          [ -n "$paths" ] || { echo "no artifacts reported; nothing to checksum"; exit 0; }
+
+          out="checksums-${{ matrix.os }}.txt"
+          : > "$out"
+          while IFS= read -r p; do
+            [ -f "$p" ] || continue
+            # Bare filenames, so `sha256sum -c` works from the directory of the downloads.
+            (cd "$(dirname "$p")" && sha256sum "$(basename "$p")") >> "$GITHUB_WORKSPACE/$out"
+          done <<< "$paths"
+
+          cat "$out"
+          gh release upload "${{ github.ref_name }}" "$out" --clobber
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          # subject-path takes a comma- or newline-separated list; a GitHub Actions expression
+          # cannot emit a literal newline, so comma it is.
+          subject-path: ${{ join(fromJSON(steps.tauri.outputs.artifactPaths), ',') }}

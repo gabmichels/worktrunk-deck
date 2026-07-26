@@ -187,6 +187,19 @@ Proper signing and notarization need an Apple Developer Program membership (abou
 macOS and a code-signing certificate for Windows. Both are on the table if the project warrants
 it; neither is a prerequisite for using it today.
 
+**What is published instead.** Releases carry SHA256 checksums and signed
+[build provenance](https://docs.github.com/actions/security-guides/using-artifact-attestations),
+which cost nothing and do not depend on Apple or Microsoft:
+
+```sh
+gh attestation verify <file> --repo gabmichels/worktrunk-deck
+```
+
+That proves the binary was produced by this repository, from a specific commit, by a specific
+workflow run. A certificate proves who you are; provenance proves where the artifact came from —
+for an open-source project the second is arguably the more useful claim, and it is the one
+available without paying for an identity.
+
 ## Development
 
 ```sh
