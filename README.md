@@ -246,6 +246,10 @@ pnpm tauri icon docs/icon-1024.png
 
 ## Contributing
 
+**[`AGENTS.md`](./AGENTS.md) is the operating guide** — commands, repo layout, conventions,
+versioning, the release process, and the gotchas worth knowing before they cost you an hour.
+Read that first, whether you are a person or a coding agent.
+
 Issues and pull requests welcome. Two invariants matter more than anything else:
 
 1. **worktrunk stays the source of truth.** The deck never allocates ports, computes worktree

@@ -15,6 +15,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "bump": "node scripts/bump.mjs",
     "test:watch": "vitest",
     "tauri": "tauri"
   },

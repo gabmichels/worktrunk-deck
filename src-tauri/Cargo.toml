@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A cross-platform desktop dashboard for git worktrees managed by worktrunk (git-wt)"
 authors = ["worktrunk-deck contributors"]
 license = "MIT"
-repository = "https://github.com/worktrunk-deck/worktrunk-deck"
+repository = "https://github.com/gabmichels/worktrunk-deck"
 edition = "2021"
 rust-version = "1.82"
 
