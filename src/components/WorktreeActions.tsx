@@ -39,19 +39,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useConfig } from "@/hooks/useConfig";
 import { fileManagerLabel, useHostPlatform } from "@/hooks/useHostPlatform";
-import type { UseCliRun } from "@/hooks/useCliRun";
 import * as ipc from "@/lib/ipc";
 import type { Worktree } from "@/lib/types";
 
 export function WorktreeActions({
   worktree,
-  run,
+  onMerge,
   onChanged,
   onOpenTerminal,
   onRunDev,
 }: {
   worktree: Worktree;
-  run: UseCliRun;
+  /** Starts `git-wt merge` as a terminal session — it can stop to ask about conflicts. */
+  onMerge: (w: Worktree) => Promise<void>;
   onChanged: () => void;
   onOpenTerminal?: (w: Worktree) => void;
   onRunDev?: (w: Worktree) => void;
@@ -84,8 +84,9 @@ export function WorktreeActions({
 
   async function doMerge() {
     setConfirmKind(null);
-    await run.start(`Merge ${w.branch}`, () => ipc.mergeWorktree(w.repoPath, w.branch));
-    onChanged();
+    // The terminal tab owns the run from here; the next poll picks up the result, so there is
+    // nothing to await beyond it having started.
+    await onMerge(w);
   }
 
   async function doRemove(force: boolean) {

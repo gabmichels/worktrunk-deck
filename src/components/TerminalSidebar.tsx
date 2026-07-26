@@ -21,7 +21,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfig } from "@/hooks/useConfig";
-import { onPtyExit, ptyKill, ptyOpen } from "@/lib/ipc";
+import {
+  createWorktreePty,
+  mergeWorktreePty,
+  onPtyExit,
+  ptyKill,
+  ptyOpen,
+} from "@/lib/ipc";
 import { forgetPtySession, startPtyStream } from "@/lib/ptyStream";
 import type { DevCommand, SessionId, Worktree } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -35,7 +41,8 @@ export interface TerminalSession {
   cwd: string;
   worktreePath: string;
   repoPath: string;
-  kind: "shell" | "dev";
+  /** `task` is a one-shot worktrunk run (create/merge) rather than an interactive shell. */
+  kind: "shell" | "dev" | "task";
   exited: boolean;
   exitCode: number | null;
 }
@@ -173,6 +180,48 @@ export function useTerminalSessions() {
     [config.devByRepo, openSession],
   );
 
+  /**
+   * Runs a worktrunk lifecycle command as a terminal session.
+   *
+   * These are not silent background jobs: `switch --create` asks for one-time approval of a
+   * repo's project hooks, and `merge` can stop on a conflict. Piping them meant the prompt was
+   * visible but unanswerable and the run hung forever. As a PTY the user can answer, or Ctrl-C.
+   */
+  const runTask = useCallback(
+    async (repoPath: string, title: string, start: () => Promise<SessionId>) => {
+      await startPtyStream();
+      const id = await start();
+      setSessions((prev) => [
+        ...prev,
+        {
+          id,
+          title,
+          cwd: repoPath,
+          worktreePath: repoPath,
+          repoPath,
+          kind: "task",
+          exited: false,
+          exitCode: null,
+        },
+      ]);
+      setActiveId(id);
+      return id;
+    },
+    [],
+  );
+
+  const createWorktree = useCallback(
+    (repoPath: string, branch: string) =>
+      runTask(repoPath, `create ${branch}`, () => createWorktreePty(repoPath, branch)),
+    [runTask],
+  );
+
+  const mergeWorktree = useCallback(
+    (repoPath: string, branch: string) =>
+      runTask(repoPath, `merge ${branch}`, () => mergeWorktreePty(repoPath, branch)),
+    [runTask],
+  );
+
   const closeSession = useCallback(
     async (id: SessionId) => {
       await ptyKill(id);
@@ -212,6 +261,8 @@ export function useTerminalSessions() {
     openTerminal,
     openTerminalAtPath,
     runDev,
+    createWorktree,
+    mergeWorktree,
     closeSession,
     closeAll,
     // Internal to TerminalSidebar's prompt dialog — not part of the App.tsx contract, but

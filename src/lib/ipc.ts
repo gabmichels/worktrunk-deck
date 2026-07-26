@@ -10,8 +10,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { z } from "zod";
 import type {
-  CliLogEndEvent,
-  CliLogEvent,
   CliResult,
   Commit,
   DeckConfig,
@@ -100,17 +98,6 @@ const GitWtResolutionSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(false), error: z.string() }),
 ]);
 
-const CliLogEventSchema = z.object({
-  runId: z.string(),
-  line: z.string(),
-  stream: z.enum(["stdout", "stderr"]),
-});
-
-const CliLogEndEventSchema = z.object({
-  runId: z.string(),
-  code: z.number().nullable(),
-});
-
 const PtyOutputEventSchema = z.object({
   sessionId: z.string(),
   base64Bytes: z.string(),
@@ -166,17 +153,20 @@ export function listWorktrees(full = false): Promise<RawSnapshot> {
 }
 
 /**
- * Starts `git-wt switch --create <branch>` (REQ-5). Resolves with a `runId` as soon as the
- * child is spawned; progress arrives as `cli-log` events — subscribe with {@link onCliLog}
- * *before* awaiting if you need the first lines.
+ * Runs `git-wt switch --create <branch>` in a **pseudo-terminal**, returning its session id
+ * (REQ-5).
+ *
+ * Not a piped stream: worktrunk asks for interactive approval the first time a repo's project
+ * hooks run, and a pipe can display that prompt but never answer it — the run then hangs with
+ * no way out. Render the returned session with `TerminalTab` like any other terminal.
  */
-export function createWorktree(repoPath: string, branch: string): Promise<string> {
-  return call("create_worktree", z.string(), { repoPath, branch });
+export function createWorktreePty(repoPath: string, branch: string): Promise<SessionId> {
+  return call("create_worktree_pty", z.string(), { repoPath, branch });
 }
 
-/** Starts `git-wt merge` for a branch (REQ-6). Streams like {@link createWorktree}. */
-export function mergeWorktree(repoPath: string, branch: string): Promise<string> {
-  return call("merge_worktree", z.string(), { repoPath, branch });
+/** `git-wt merge` in a PTY, for the same reason as {@link createWorktreePty} (REQ-6). */
+export function mergeWorktreePty(repoPath: string, branch: string): Promise<SessionId> {
+  return call("merge_worktree_pty", z.string(), { repoPath, branch });
 }
 
 /** Buffered `git-wt remove` (REQ-6). `force` discards uncommitted work — confirm first. */
@@ -280,11 +270,6 @@ function subscribe<T>(
 ): Promise<UnlistenFn> {
   return listen(event, (e) => handler(parseOrThrow(event, schema, e.payload)));
 }
-
-export const onCliLog = (h: (e: CliLogEvent) => void) => subscribe("cli-log", CliLogEventSchema, h);
-
-export const onCliLogEnd = (h: (e: CliLogEndEvent) => void) =>
-  subscribe("cli-log-end", CliLogEndEventSchema, h);
 
 export const onPtyOutput = (h: (e: PtyOutputEvent) => void) =>
   subscribe("pty-output", PtyOutputEventSchema, h);

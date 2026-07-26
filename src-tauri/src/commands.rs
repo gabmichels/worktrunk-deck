@@ -1,7 +1,6 @@
 //! The `#[tauri::command]` surface (plan §3.4). These are thin: argument marshalling, config
 //! lookup, then straight into `gitwt`/`pty`/`external`/`config`. No worktree logic lives here.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tauri::{AppHandle, State};
@@ -12,14 +11,6 @@ use crate::external;
 use crate::git;
 use crate::gitwt::{self, CliResult, RawSnapshot, Subcommand};
 use crate::pty::{self, PtyRegistry};
-
-/// Correlates `cli-log` events with the run that produced them, so two concurrent actions
-/// cannot interleave into one panel (TASK-9).
-static NEXT_RUN_ID: AtomicU64 = AtomicU64::new(0);
-
-fn new_run_id() -> String {
-    format!("run-{}", NEXT_RUN_ID.fetch_add(1, Ordering::Relaxed))
-}
 
 /* ------------------------------------------------------------------ config */
 
@@ -69,65 +60,6 @@ pub async fn list_worktrees(app: AppHandle, full: bool) -> DeckResult<RawSnapsho
 
 /* -------------------------------------------------------- lifecycle actions */
 
-/// `git-wt switch --create <branch>` (REQ-5), streamed.
-///
-/// Returns the `runId` as soon as the child is spawned rather than when it finishes, so the
-/// panel can attach to the stream while worktrunk is still installing dependencies.
-#[tauri::command]
-pub async fn create_worktree(
-    app: AppHandle,
-    repo_path: String,
-    branch: String,
-) -> DeckResult<String> {
-    let cfg = config::load(&app)?;
-    let bin = config::locate_gitwt(&cfg)?;
-    let run_id = new_run_id();
-
-    let spawned = run_id.clone();
-    let app_for_run = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let _ = gitwt::run_streaming(
-            app_for_run,
-            spawned,
-            bin,
-            repo_path.into(),
-            Subcommand::Switch,
-            vec!["--create".into(), branch],
-        )
-        .await;
-    });
-
-    Ok(run_id)
-}
-
-/// `git-wt merge` for a branch (REQ-6), streamed like `create_worktree`.
-#[tauri::command]
-pub async fn merge_worktree(
-    app: AppHandle,
-    repo_path: String,
-    branch: String,
-) -> DeckResult<String> {
-    let cfg = config::load(&app)?;
-    let bin = config::locate_gitwt(&cfg)?;
-    let run_id = new_run_id();
-
-    let spawned = run_id.clone();
-    let app_for_run = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let _ = gitwt::run_streaming(
-            app_for_run,
-            spawned,
-            bin,
-            repo_path.into(),
-            Subcommand::Merge,
-            vec![branch],
-        )
-        .await;
-    });
-
-    Ok(run_id)
-}
-
 /// `git-wt remove` (REQ-6), buffered.
 ///
 /// A non-zero exit is returned as `ok: false` with worktrunk's stderr rather than as an error:
@@ -169,6 +101,67 @@ pub async fn list_commits(
     limit: u32,
 ) -> DeckResult<Vec<git::Commit>> {
     git::log(std::path::Path::new(&worktree_path), skip, limit).await
+}
+
+/* ----------------------------------------------- interactive worktrunk tasks */
+
+/// Builds the full argv (binary first) for running a worktrunk subcommand inside a PTY.
+///
+/// The frontend never names the binary or the subcommand — it passes a repo and a branch, and
+/// the allowlisted [`Subcommand`] is chosen here. `pty_open` would technically accept an
+/// arbitrary command, so routing these through a dedicated command keeps NFR-3's guarantee
+/// intact rather than relying on the webview to be well behaved.
+fn gitwt_pty_argv(
+    app: &AppHandle,
+    repo_path: &str,
+    sub: Subcommand,
+    args: &[String],
+) -> DeckResult<Vec<String>> {
+    let cfg = config::load(app)?;
+    let bin = config::locate_gitwt(&cfg)?;
+    let mut argv = vec![bin.to_string_lossy().into_owned()];
+    argv.extend(gitwt::build_args(
+        std::path::Path::new(repo_path),
+        sub,
+        args,
+    ));
+    Ok(argv)
+}
+
+/// `git-wt switch --create <branch>` in a **pseudo-terminal** (REQ-5).
+///
+/// Not a piped child: worktrunk asks for interactive approval the first time a repo's project
+/// hooks run ("needs approval to execute 3 commands"), and it will not accept `--yes` from a
+/// non-interactive shell. Streaming through a pipe means that prompt can be *displayed* but
+/// never *answered*, so the run hangs forever with no way out. A PTY makes it a normal terminal
+/// the user can type into — and Ctrl-C out of.
+#[tauri::command]
+pub fn create_worktree_pty(
+    app: AppHandle,
+    registry: State<'_, Arc<PtyRegistry>>,
+    repo_path: String,
+    branch: String,
+) -> DeckResult<String> {
+    let argv = gitwt_pty_argv(
+        &app,
+        &repo_path,
+        Subcommand::Switch,
+        &["--create".to_string(), branch],
+    )?;
+    pty::open(&app, &registry, &repo_path, Some(argv))
+}
+
+/// `git-wt merge` in a PTY, for the same reason as [`create_worktree_pty`] — merge can stop to
+/// ask about conflicts or confirmation.
+#[tauri::command]
+pub fn merge_worktree_pty(
+    app: AppHandle,
+    registry: State<'_, Arc<PtyRegistry>>,
+    repo_path: String,
+    branch: String,
+) -> DeckResult<String> {
+    let argv = gitwt_pty_argv(&app, &repo_path, Subcommand::Merge, &[branch])?;
+    pty::open(&app, &registry, &repo_path, Some(argv))
 }
 
 /* ------------------------------------------------------------- open / launch */

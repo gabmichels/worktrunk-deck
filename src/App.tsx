@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { Toaster, toast } from "sonner";
 
 import { BusyBar } from "@/components/BusyBar";
-import { CliLogPanel } from "@/components/CliLogPanel";
 import { FeatureGroup } from "@/components/FeatureGroup";
 import { FilterBar, type RepoChoice, type RepoSelection } from "@/components/FilterBar";
 import { FirstRunGate } from "@/components/FirstRunGate";
@@ -16,7 +15,6 @@ import { RepoSection } from "@/components/RepoSection";
 import { SettingsModal } from "@/components/SettingsModal";
 import { TerminalSidebar, useTerminalSessions } from "@/components/TerminalSidebar";
 import { WorktreeActions } from "@/components/WorktreeActions";
-import { useCliRun } from "@/hooks/useCliRun";
 import { BusyProvider, useBusy } from "@/hooks/useBusy";
 import { ConfigProvider, messageOf, useConfig } from "@/hooks/useConfig";
 import { useTheme } from "@/hooks/useTheme";
@@ -69,7 +67,6 @@ function Deck() {
   const [newOpen, setNewOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
 
-  const run = useCliRun();
   const terminals = useTerminalSessions();
 
   const everyWorktree = useMemo(
@@ -175,10 +172,25 @@ function Deck() {
     void track("Opening terminal", () => terminals.openTerminalAtPath(path));
   };
 
+  /**
+   * Create and merge run as terminal sessions, so worktrunk's interactive prompts (hook
+   * approval, merge conflicts) can actually be answered. Both reveal the sidebar for the same
+   * reason opening a terminal does — otherwise the run happens somewhere the user cannot see.
+   */
+  const createWorktree = async (repoPath: string, branch: string) => {
+    setTerminalOpen(true);
+    await track(`Creating ${branch}`, () => terminals.createWorktree(repoPath, branch));
+  };
+
+  const mergeWorktree = async (w: Worktree) => {
+    setTerminalOpen(true);
+    await track(`Merging ${w.branch}`, () => terminals.mergeWorktree(w.repoPath, w.branch));
+  };
+
   const renderActions = (w: Worktree) => (
     <WorktreeActions
       worktree={w}
-      run={run}
+      onMerge={mergeWorktree}
       onChanged={() => void refresh()}
       onOpenTerminal={openTerminal}
       onRunDev={runDev}
@@ -286,14 +298,11 @@ function Deck() {
         )}
       </div>
 
-      <CliLogPanel run={run} onClose={run.clear} />
-
       <NewWorktreeModal
         open={newOpen}
         onOpenChange={setNewOpen}
         repos={(snapshot?.repos ?? []).map((r) => ({ repo: r.repo, repoPath: r.repoPath }))}
-        run={run}
-        onCreated={() => void refresh()}
+        onCreate={createWorktree}
         defaultRepoPath={selectedRepoPath}
       />
       <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
