@@ -19,14 +19,12 @@ export function WorktreeCard({
   worktree,
   actions,
   onSelect,
-  selected = false,
 }: {
   worktree: Worktree;
   /** Action affordances are injected so M1 can render the card with none (TASK-8 → TASK-11). */
   actions?: ReactNode;
-  /** Called on activation so the surrounding list can track which repo is current. */
+  /** Called on activation so the surrounding list can mark this worktree's repo as current. */
   onSelect?: (worktree: Worktree) => void;
-  selected?: boolean;
 }) {
   const w = worktree;
   const [expanded, setExpanded] = useState(false);
@@ -35,8 +33,8 @@ export function WorktreeCard({
   const commits = useCommits(w.path);
 
   const toggle = () => {
-    // Selecting and expanding are the same gesture: picking a card is how you say "this is the
-    // repo I am working in", and that is exactly the moment you also want to see its history.
+    // Touching a worktree also makes its repo the current one — otherwise selecting a repo
+    // then opening one of its worktrees would appear to deselect it.
     onSelect?.(w);
     const next = !expanded;
     setExpanded(next);
@@ -62,8 +60,6 @@ export function WorktreeCard({
       className={cn(
         "border-border bg-card group rounded-lg border px-3 py-2",
         "hover:border-ring/40 cursor-pointer transition-colors",
-        // Deliberately understated — this marks context, it is not a destructive selection.
-        selected && "border-primary/60 bg-primary/5",
       )}
     >
       <div
