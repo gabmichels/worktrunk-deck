@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfig } from "@/hooks/useConfig";
 import { onPtyExit, ptyKill, ptyOpen } from "@/lib/ipc";
+import { forgetPtySession, startPtyStream } from "@/lib/ptyStream";
 import type { DevCommand, SessionId, Worktree } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -109,6 +110,10 @@ export function useTerminalSessions() {
   const openSession = useCallback(
     async (w: Worktree, kind: "shell" | "dev", cmd?: string[], cwd?: string) => {
       const dir = cwd ?? w.path;
+      // Before the spawn, never after. The shell emits its startup sequence immediately and
+      // Tauri does not buffer events, so a listener created later misses it — including the
+      // cursor-position query a readline shell blocks on. See `ptyStream`.
+      await startPtyStream();
       const id = await ptyOpen(dir, cmd);
       setSessions((prev) => [
         ...prev,
@@ -136,6 +141,7 @@ export function useTerminalSessions() {
    * (e.g. to run the `safe.directory` fix themselves rather than have the app do it, NFR-3).
    */
   const openTerminalAtPath = useCallback(async (path: string) => {
+    await startPtyStream();
     const id = await ptyOpen(path);
     setSessions((prev) => [
       ...prev,
@@ -170,6 +176,8 @@ export function useTerminalSessions() {
   const closeSession = useCallback(
     async (id: SessionId) => {
       await ptyKill(id);
+      // Otherwise the stream keeps buffering output for a pane that will never attach.
+      forgetPtySession(id);
       setSessions((prev) => prev.filter((s) => s.id !== id));
       setActiveId((prev) => {
         if (prev !== id) return prev;
@@ -182,6 +190,7 @@ export function useTerminalSessions() {
 
   const closeAll = useCallback(async () => {
     await Promise.all(sessions.map((s) => ptyKill(s.id)));
+    sessions.forEach((s) => forgetPtySession(s.id));
     setSessions([]);
     setActiveId(null);
   }, [sessions]);

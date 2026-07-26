@@ -13,23 +13,9 @@ import type { Terminal } from "@xterm/xterm";
 import { useEffect } from "react";
 import { toast } from "sonner";
 
-import { onPtyExit, onPtyOutput, ptyResize, ptyWrite } from "@/lib/ipc";
+import { onPtyExit, ptyResize, ptyWrite } from "@/lib/ipc";
+import { attachPtySink, detachPtySink } from "@/lib/ptyStream";
 import type { SessionId } from "@/lib/types";
-
-/**
- * Base64 → raw bytes, written straight into xterm. PTY output is chunked on arbitrary byte
- * boundaries, so decoding as UTF-8 text here would corrupt any multi-byte character split
- * across two chunks — xterm's own parser handles UTF-8 reassembly across `write()` calls when
- * fed `Uint8Array`s, a plain JS string cannot represent that.
- */
-function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
 
 export interface UsePtyOptions {
   /** Skip write/resize wiring once the session has already exited (still readable, but dead). */
@@ -46,20 +32,14 @@ export function usePty(
   fitAddon: FitAddon | null,
   { exited }: UsePtyOptions,
 ): void {
-  // Output: filter the shared event stream by sessionId — one listener per tab would also work,
-  // but Tauri's `listen` already fans a single native event to every JS subscriber, so filtering
-  // here is no more expensive and keeps the subscribe/unsubscribe symmetric per tab.
+  // Output comes from `ptyStream`, not a listener created here. A subscription established at
+  // this point is already too late: the shell has been running since `pty_open` resolved, and
+  // whatever it emitted in the meantime — including the cursor-position query it is blocking
+  // on — would be lost. `ptyStream` listens from before the first spawn and replays.
   useEffect(() => {
     if (!term) return;
-    let disposed = false;
-    const unlistenPromise = onPtyOutput((e) => {
-      if (disposed || e.sessionId !== sessionId) return;
-      term.write(base64ToBytes(e.base64Bytes));
-    });
-    return () => {
-      disposed = true;
-      void unlistenPromise.then((unlisten) => unlisten());
-    };
+    attachPtySink(sessionId, (bytes) => term.write(bytes));
+    return () => detachPtySink(sessionId);
   }, [sessionId, term]);
 
   // Input: keystrokes go straight to the PTY. Once the shell has exited there is nothing to
