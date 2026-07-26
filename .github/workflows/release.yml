@@ -1,8 +1,9 @@
 name: Release
 
 # Tag a commit (e.g. `git tag v0.1.0 && git push --tags`) to produce installers for all three
-# platforms. v1 ships **unsigned** — signing and notarization are post-v1 (plan §7), so the
-# release notes must carry the de-quarantine steps in README "Installing an unsigned build".
+# platforms. Builds are **unsigned** — signing and notarization are post-v1 (plan §7), so the
+# release notes below carry the per-OS steps to open them. Keep those steps here rather than
+# pointing at the README: someone downloading a binary is reading the release page, not the repo.
 on:
   push:
     tags: ["v*"]
@@ -61,10 +62,19 @@ jobs:
           releaseBody: |
             Cross-platform desktop dashboard for [worktrunk](https://worktrunk.dev).
 
-            Requires `git-wt` installed and on your PATH.
+            Requires [worktrunk](https://worktrunk.dev) (`git-wt`) ≥ 0.60 installed and on your
+            PATH. The app will walk you through installing it if it is missing.
 
-            These builds are **unsigned**. See the README section
-            "Installing an unsigned build" for the per-OS steps to open them.
+            **These builds are unsigned**, so your OS will object the first time:
+
+            - **macOS** — "worktrunk-deck is damaged and can't be opened" is Gatekeeper, not a
+              corrupt download. Clear the quarantine flag:
+              `xattr -dr com.apple.quarantine "/Applications/worktrunk-deck.app"`
+            - **Windows** — SmartScreen shows "Windows protected your PC". Choose
+              **More info → Run anyway**.
+            - **Linux** — mark the AppImage executable: `chmod +x worktrunk-deck_*.AppImage`
+
+            Building from source avoids all of this — see the README.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

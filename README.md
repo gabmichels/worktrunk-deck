@@ -1,29 +1,30 @@
 # worktrunk-deck
 
-A cross-platform, open-source desktop dashboard for [worktrunk](https://worktrunk.dev)
-(`git-wt`) — visualize git worktrees across all your repos and drive them (create, run,
-merge, remove) with an integrated interactive terminal. It is a thin **view and controller
-over `git-wt`**; worktrunk remains the single source of truth for worktree and port state.
+A cross-platform desktop dashboard for [worktrunk](https://worktrunk.dev) (`git-wt`). See every
+git worktree across all your repos — which are dirty, which are ahead or behind, which dev
+servers are actually running — and act on them: create, merge, remove, or drop into a real
+terminal inside any worktree.
 
-![worktrunk-deck showing three repositories, their worktrees, and a live dev server](./docs/screenshot.png)
+It is a thin **view and controller over `git-wt`**. worktrunk stays the single source of truth
+for worktree and port state; the deck reimplements none of it.
 
-> **Status: feature-complete for v1 (M0–M5).** Everything in [`specs/v1/`](./specs/v1/) is
-> implemented. It has been exercised end-to-end on Windows; macOS and Linux build in CI but
-> have not yet had a manual pass (see [Roadmap](#roadmap)).
+![The dashboard listing three repositories, their worktrees, and a live dev server](./docs/screenshot.png)
+
+## Status
+
+**There are no downloadable builds yet — you install it by building from source.** That takes
+about five minutes and the steps are below.
+
+The app itself is feature-complete for v1 and CI builds it on Windows, macOS and Linux. What is
+missing is the release side: nothing has been tagged, so there are no installers to download.
+See [Known gaps](#known-gaps) for the honest list.
 
 ## Requirements
 
-**To *use* the app you need exactly one thing: [worktrunk](https://worktrunk.dev) (`git-wt`)
-≥ 0.60.** Nothing else — the released bundles are compiled, so there is no Node or Rust
-toolchain to install.
-
-That requirement is not incidental. worktrunk owns every worktree and port decision; the deck
-is a view and controller over it and reimplements none of that (see
-[Non-goals](./specs/v1/spec.md#3-non-goals)). Without `git-wt` there is genuinely nothing to
-show, so the app detects its absence on launch and walks you through installing it — with the
-command for your platform, a Copy button, and a re-check — rather than failing with an error.
-
-Install worktrunk:
+**[worktrunk](https://worktrunk.dev) (`git-wt`) ≥ 0.60** — a hard requirement, not an optional
+integration. worktrunk owns every worktree and port decision, so without it there is nothing to
+show. The app detects its absence on launch and walks you through installing it, with the right
+command for your platform and a re-check button.
 
 ```sh
 # Windows
@@ -36,49 +37,54 @@ brew install worktrunk && wt config shell install
 cargo install worktrunk && wt config shell install
 ```
 
-`git` itself must also be present, but worktrunk already requires it.
+`git` must also be present, but worktrunk already requires it.
 
-> **We deliberately do not bundle worktrunk.** It is a separate project on its own release
-> cadence; vendoring a copy would pin you to whatever version we happened to ship, and would
-> shadow the `git-wt` you already have configured.
+To build the app you additionally need:
 
-### Building from source
+- **Node ≥ 22** and [pnpm](https://pnpm.io)
+- A **[Rust toolchain](https://rustup.rs)**
+- Your platform's [Tauri v2 system dependencies](https://v2.tauri.app/start/prerequisites/) —
+  on Debian/Ubuntu that is `libwebkit2gtk-4.1-dev`, `librsvg2-dev` and `patchelf`
 
-Only needed if you are contributing or want an unreleased build. Additionally requires:
+> We deliberately do **not** bundle worktrunk. It is a separate project on its own release
+> cadence; vendoring a copy would pin you to whatever version we shipped and would shadow the
+> `git-wt` you already have configured.
 
-- Node ≥ 22 and [pnpm](https://pnpm.io)
-- A [Rust toolchain](https://rustup.rs)
-- Your platform's [Tauri v2 system dependencies](https://v2.tauri.app/start/prerequisites/)
-  (on Debian/Ubuntu: `libwebkit2gtk-4.1-dev`, `librsvg2-dev`, `patchelf`)
+## Install
 
 ```sh
+git clone https://github.com/gabmichels/worktrunk-deck.git
+cd worktrunk-deck
 pnpm install
-pnpm tauri dev      # run with hot reload
-pnpm tauri build    # produce an installer for the current platform
+pnpm tauri build
 ```
 
-**Configuration.** The deck reads a small JSON config from your OS app-config directory
-(`%APPDATA%\dev.worktrunk.deck\config.json` on Windows,
-`~/Library/Application Support/dev.worktrunk.deck/` on macOS,
-`~/.config/dev.worktrunk.deck/` on Linux). Point `scanRoot` at a directory containing your
-repos, or list them explicitly:
+`pnpm tauri build` writes an installer and a standalone binary to
+`src-tauri/target/release/bundle/` — an `.msi`/`.exe` on Windows, a `.dmg` on macOS, a `.deb`
+and `.AppImage` on Linux. Install or run whichever suits you.
 
-```json
-{
-  "version": 1,
-  "repos": [],
-  "scanRoot": "/path/to/your/repos",
-  "autoRefreshMs": 5000,
-  "confirmDestructive": true,
-  "theme": "system",
-  "crossRepoGrouping": false
-}
+To run it without installing, or to hack on it:
+
+```sh
+pnpm tauri dev
 ```
 
-On first run the app walks you through this — there is no need to write the file by hand. If
-`git-wt` is not on the `PATH` your GUI session inherits (common on macOS and Linux, where GUI
-apps get a minimal environment), set `"gitWtPath"` to its absolute path, or use the Browse
-button in Settings.
+## First run
+
+The app asks for two things and will not proceed until both are satisfied:
+
+1. **`git-wt`** — found on `PATH`, or pointed at directly. GUI apps inherit a shorter `PATH`
+   than your shell, especially on macOS and Linux, so if worktrunk is installed but not found,
+   browse to the binary in Settings.
+2. **Somewhere to look** — a folder to scan, or explicit repo paths.
+
+Point the scan root at a folder of repositories to see them all, or at a **single repository**
+to see just that repo and its worktrees. The folder button in the header switches between them
+without a trip through Settings.
+
+Configuration lives in your OS app-config directory
+(`%APPDATA%\dev.worktrunk.deck\` on Windows, `~/Library/Application Support/dev.worktrunk.deck/`
+on macOS, `~/.config/dev.worktrunk.deck/` on Linux). The UI writes it for you.
 
 ### Making the port column work
 
@@ -95,64 +101,29 @@ dev = "pnpm dev --port {{ branch | hash_port }}"
 ```
 
 `hash_port` derives a stable port in 10000–19999 from the branch name, so every worktree gets
-its own and two worktrees on the same branch share one. The deck only *displays* this — it
-never allocates ports itself.
+its own and two worktrees on the same branch share one. The deck only *displays* this — it never
+allocates ports itself.
 
-## Installing an unsigned build
+## What it does
 
-v1 releases are **unsigned** — code signing and notarization are post-v1. Your OS will object
-the first time:
-
-- **macOS** — "worktrunk-deck is damaged and can't be opened" is Gatekeeper, not a corrupt
-  download. Clear the quarantine flag:
-  ```sh
-  xattr -dr com.apple.quarantine "/Applications/worktrunk-deck.app"
-  ```
-- **Windows** — SmartScreen shows "Windows protected your PC". Choose **More info → Run
-  anyway**.
-- **Linux** — mark the AppImage executable: `chmod +x worktrunk-deck_*.AppImage`.
-
-Building from source (above) avoids all of this.
-
-## Development
-
-```sh
-pnpm typecheck                 # tsc --noEmit
-pnpm test                      # vitest — adapter + grouping units against recorded fixtures
-cd src-tauri && cargo test     # config, git-wt allowlist, fan-out, and real PTY sessions
-cd src-tauri && cargo clippy --all-targets -- -D warnings
-cd src-tauri && cargo fmt --check
-```
-
-The last two are enforced in CI, so run them before opening a PR.
-
-Note that `cargo test` really does spawn shells in real pseudo-terminals — that is the only
-way to prove ConPTY (Windows) and `openpty` (Unix) work. Those tests take a few seconds and
-need no network.
-
-The `git-wt` JSON fixtures in [`test/fixtures/`](./test/fixtures/) are real, sanitized
-worktrunk output; see that directory's README for how to re-capture them.
-
-The app icon's source of truth is [`docs/icon.svg`](./docs/icon.svg). To regenerate the
-platform icon set after editing it:
-
-```sh
-pnpm dlx sharp-cli -i docs/icon.svg -o docs/icon-1024.png resize 1024 1024
-pnpm tauri icon docs/icon-1024.png
-```
-
-**Architecture in one line:** a Rust broker (`src-tauri/src/gitwt.rs`) invokes an allowlisted
-set of `git-wt` subcommands per repo in parallel, and `src/lib/adapter.ts` normalizes the raw
-JSON into the types the React UI renders. No worktree or port logic lives in this app.
+- **See everything.** Every worktree across every configured repo: branch, clean/dirty with
+  diff counts, ahead/behind versus the default branch and the remote, HEAD, and the dev-server
+  port with a live dot. Each repo gets a stable colour so they stay distinguishable.
+- **Act on it.** Create a worktree, merge it back, remove it (with confirmation), open it in
+  your editor or file manager, copy its path, open its dev URL.
+- **Work in it.** A real PTY terminal inside any worktree — interactive, multiple concurrent
+  tabs, and a "Run dev" action that starts the repo's dev command in the right directory. Every
+  session is killed when the app quits, so nothing is left holding a port.
+- **Dig in.** Click a card to expand its recent commits, ten at a time.
+- **Filter.** By repository via a searchable multi-select, by text, or to running-only.
 
 ## Design notes
 
-- **Only four `git-wt` subcommands** may ever be spawned — `list`, `switch`, `merge`,
-  `remove` — enforced in Rust. The webview cannot spawn processes at all.
-- **Exactly one call to `git` itself**, in `src-tauri/src/git.rs`: a read-only `git log` for the
-  expanded card's commit history, which worktrunk has no subcommand for. Every flag is a fixed
-  literal, the caller supplies only a path and two integers, and `--` terminates the argument
-  list. No code path there can write to a repository.
+- **Only four `git-wt` subcommands** may ever be spawned — `list`, `switch`, `merge`, `remove` —
+  enforced in Rust. The webview cannot spawn processes at all.
+- **Exactly one call to `git` itself**, in `src-tauri/src/git.rs`: a read-only `git log` for
+  commit history, which worktrunk has no subcommand for. Every flag is a fixed literal, the
+  caller supplies only a path and two integers, and `--` terminates the argument list.
 - **The app never runs a fix on your behalf.** When a repo fails with git's "dubious ownership"
   error, the deck shows the exact `git config --global --add safe.directory …` command with a
   copy button and offers a terminal — it does not execute it.
@@ -160,58 +131,69 @@ JSON into the types the React UI renders. No worktree or port logic lives in thi
   staleness indicator.
 - **One unreadable repo never breaks the others.** It renders as an inline error card.
 
-## Roadmap
+## Development
 
-The complete, self-contained spec lives in [`specs/v1/`](./specs/v1/):
+```sh
+pnpm typecheck                 # tsc --noEmit
+pnpm test                      # vitest — adapter, grouping, and helpers
+cd src-tauri && cargo test     # config, git-wt allowlist, fan-out, real PTY sessions
+cd src-tauri && cargo clippy --all-targets -- -D warnings
+cd src-tauri && cargo fmt --check
+```
 
-1. **[`spec.md`](./specs/v1/spec.md)** — WHAT & WHY (requirements, non-goals, acceptance).
-2. **[`plan.md`](./specs/v1/plan.md)** — HOW (architecture, stack, the `git-wt` JSON contract,
-   Tauri/PTY command surface, module layout, milestones).
-3. **[`tasks.md`](./specs/v1/tasks.md)** — DO (ordered, atomic, context-briefed tasks with a
-   dependency graph).
+All of these run in CI on Windows, macOS and Linux; run them before opening a PR.
 
-| Milestone | Scope | Status |
-|---|---|---|
-| M0 | Scaffold, types, fixtures | ✅ done |
-| M1 | Read-only dashboard | ✅ done |
-| M2 | Lifecycle actions (create / merge / remove) | ✅ done |
-| M3 | Integrated PTY terminal | ✅ done |
-| M4 | Full UI (header, filter, settings, help, grouping) | ✅ done |
-| M5 | OSS hardening (CI matrix, release bundles) | ✅ done |
+`cargo test` really does spawn shells in real pseudo-terminals — the only way to prove ConPTY
+(Windows) and `openpty` (Unix) work. Those tests take a few seconds and need no network.
 
-Each task in `tasks.md` carries a context brief written so it can be executed **without the
-conversation that produced the spec** — the repo plus those three docs are enough.
+**Architecture in one line:** a Rust broker (`src-tauri/src/gitwt.rs`) invokes an allowlisted set
+of `git-wt` subcommands per repo in parallel, and `src/lib/adapter.ts` normalizes the raw JSON
+into the types the React UI renders. No worktree or port logic lives in this app.
 
-### Known gaps
+The `git-wt` JSON fixtures in [`test/fixtures/`](./test/fixtures/) are real, sanitized worktrunk
+output; that directory's README explains how to re-capture them.
 
-Honest list of what v1 does *not* have:
+The app icon's source is [`docs/icon.svg`](./docs/icon.svg). To regenerate the platform icon set:
 
-- **Manual verification is Windows-only so far.** CI builds and runs the test suite on all
-  three platforms, but nobody has yet clicked through the app on macOS or Linux. The
-  per-OS terminal and "run externally" paths are the most likely places to find problems.
-- **Releases are unsigned.** Signing and notarization are post-v1 (plan §7).
-- **Cross-repo grouping is display-only and uses a naive heuristic** (exact branch-name match
-  across repos). Spec Q2 leaves a manifest-based approach open; the heuristic is isolated in
-  `src/lib/grouping.ts` so it can be replaced without touching callers.
-- **`--full` is not surfaced in the UI.** The backend supports it; nothing requests it yet.
+```sh
+pnpm dlx sharp-cli -i docs/icon.svg -o docs/icon-1024.png resize 1024 1024
+pnpm tauri icon docs/icon-1024.png
+```
+
+## Known gaps
+
+- **No published releases.** A tag-triggered workflow exists and produces bundles for all three
+  platforms, but nothing has been tagged, so building from source is currently the only way in.
+- **Builds would be unsigned.** Signing and notarization are post-v1, so a released binary would
+  trip Gatekeeper on macOS and SmartScreen on Windows. Building it yourself avoids that entirely.
+- **Manual testing has been Windows-only.** CI builds and runs the full suite on all three
+  platforms, but nobody has yet clicked through the app on macOS or Linux. The integrated
+  terminal and "Run externally" are the most likely places to find problems there.
+- **Cross-repo grouping uses a naive heuristic** — exact branch-name match across repos. It is
+  display-only and off by default, and the heuristic is isolated in `src/lib/grouping.ts` so it
+  can be replaced without touching callers.
+- **`--full` is not surfaced.** The backend supports worktrunk's `--full` listing; nothing
+  requests it yet.
 
 ## Contributing
 
-Issues and pull requests are welcome. Two invariants matter more than anything else — please
-keep them intact:
+Issues and pull requests welcome. Two invariants matter more than anything else:
 
 1. **worktrunk stays the source of truth.** The deck never allocates ports, computes worktree
-   paths, or runs raw `git`. If worktrunk cannot do it, neither do we.
+   paths, or runs raw `git` beyond the one read-only `log` noted above. If worktrunk cannot do
+   it, neither do we.
 2. **All `git-wt` knowledge lives in two files** — `src-tauri/src/gitwt.rs` (invocation) and
    `src/lib/adapter.ts` (parsing). Nothing else should know worktrunk's JSON shape.
 
 Practical notes:
 
-- Only four subcommands are allowlisted (`list`, `switch`, `merge`, `remove`). Widening that
-  set is a security decision, not a refactor — raise it in an issue first.
-- The adapter must never throw on unexpected input. `test/fixtures/list.malformed.json` exists
-  to enforce that; add to it rather than loosening the test.
-- Run the commands under [Development](#development) before opening a PR.
+- Widening the four-subcommand allowlist is a security decision, not a refactor — raise it in an
+  issue first.
+- The adapter must never throw on unexpected input. `test/fixtures/list.malformed.json` exists to
+  enforce that; add to it rather than loosening the test.
+
+The full specification lives in [`specs/v1/`](./specs/v1/) — requirements and acceptance criteria
+in `spec.md`, architecture and contracts in `plan.md`, and the task breakdown in `tasks.md`.
 
 ## Stack
 
