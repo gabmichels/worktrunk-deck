@@ -1,15 +1,16 @@
-//! Read-only `git log`, for the expanded card's commit history.
+//! Read-only git: commit history for the expanded card, and working-tree status for the detail
+//! modal.
 //!
 //! # Why this exists at all
 //!
-//! Everywhere else the deck talks only to `git-wt` (see `gitwt.rs`, NFR-3). worktrunk has no
-//! log subcommand, so showing history requires calling `git` directly. That is a deliberate,
-//! narrow widening of the process surface, and it is confined to this module under three
-//! rules:
+//! Everywhere else the deck talks only to `git-wt` (see `gitwt.rs`, NFR-3). worktrunk reports
+//! *that* a worktree is dirty but not which files, and has no log subcommand at all, so both
+//! views require calling `git` directly. That is a deliberate, narrow widening of the process
+//! surface, and it is confined to this module under three rules:
 //!
-//! 1. **Read-only subcommands only** — `log`, plus `rev-parse` and `symbolic-ref` to work out
-//!    which branch to compare against. All three only read; there is no code path here that can
-//!    write to a repository, and adding one would belong in a different module.
+//! 1. **Read-only subcommands only** — `log` and `status`, plus `rev-parse` and `symbolic-ref`
+//!    to work out which branch to compare against. All four only read; there is no code path
+//!    here that can write to a repository, and adding one would belong in a different module.
 //! 2. **No user-supplied argument strings.** Every flag is a fixed literal, and the one
 //!    computed argument — the `<base>..HEAD` range — is built from ref names git itself
 //!    reported, never from anything the frontend sent.
@@ -179,6 +180,114 @@ pub async fn log(worktree: &Path, skip: u32, limit: u32) -> DeckResult<Vec<Commi
     Ok(parse_log(&String::from_utf8_lossy(&output.stdout)))
 }
 
+/// One changed path, as git's porcelain format reports it.
+///
+/// `index` and `worktree` are git's own two status letters, passed through rather than
+/// interpreted: a file can be staged *and* have further unstaged edits (`MM`), and collapsing
+/// that here would lose the distinction the detail view exists to show. Naming them lives in
+/// the frontend, alongside the rest of the presentation logic.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusEntry {
+    pub path: String,
+    /// Set only for renames and copies — the path it came from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_path: Option<String>,
+    /// Staged (index) state: `M`, `A`, `D`, `R`, `C`, `?`, or a space for unchanged.
+    pub index: String,
+    /// Unstaged (working tree) state, same alphabet.
+    pub worktree: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkingTreeStatus {
+    pub entries: Vec<StatusEntry>,
+    /// True when the list was cut off — a repo mid-rebase can report tens of thousands.
+    pub truncated: bool,
+}
+
+/// Above this, the list stops being something a human reads and starts being something that
+/// janks the UI thread parsing it.
+const MAX_STATUS_ENTRIES: usize = 500;
+
+/// The working tree's changed paths, for the card's status detail view.
+///
+/// Untracked *directories* are reported collapsed (`.config/` rather than every file inside),
+/// which is git's default and matches the flags worktrunk reports. Expanding them would mean
+/// walking into `node_modules`.
+pub async fn status(worktree: &Path) -> DeckResult<WorkingTreeStatus> {
+    if !worktree.is_dir() {
+        return Err(DeckError::Io(format!(
+            "{} is not a directory",
+            worktree.display()
+        )));
+    }
+
+    let output = async_command("git")
+        .arg("-C")
+        .arg(worktree)
+        .arg("status")
+        .arg("--porcelain=v1")
+        // NUL-separated, so paths with spaces, quotes or non-ASCII arrive intact instead of
+        // being shell-quoted by git and needing to be unquoted here.
+        .arg("-z")
+        .arg("--")
+        .output()
+        .await
+        .map_err(|e| DeckError::Io(format!("cannot run git: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(DeckError::Io(format!(
+            "git status failed: {}",
+            stderr.trim()
+        )));
+    }
+
+    Ok(parse_status(&String::from_utf8_lossy(&output.stdout)))
+}
+
+/// Parses `git status --porcelain=v1 -z`.
+///
+/// Records are NUL-terminated `XY <path>`; a rename or copy is followed by a second record
+/// holding the original path, which is why this cannot be a plain `split` and `map`.
+fn parse_status(stdout: &str) -> WorkingTreeStatus {
+    let mut fields = stdout.split('\0').filter(|f| !f.is_empty());
+    let mut entries = Vec::new();
+    let mut truncated = false;
+
+    while let Some(field) = fields.next() {
+        // "XY path" — two status letters, a space, then at least one character of path.
+        if field.len() < 4 {
+            continue;
+        }
+        let mut chars = field.chars();
+        let index = chars.next().unwrap_or(' ');
+        let worktree = chars.next().unwrap_or(' ');
+        let path = field[3..].to_string();
+
+        let original_path = if index == 'R' || index == 'C' || worktree == 'R' || worktree == 'C' {
+            fields.next().map(str::to_string)
+        } else {
+            None
+        };
+
+        if entries.len() >= MAX_STATUS_ENTRIES {
+            truncated = true;
+            break;
+        }
+        entries.push(StatusEntry {
+            path,
+            original_path,
+            index: index.to_string(),
+            worktree: worktree.to_string(),
+        });
+    }
+
+    WorkingTreeStatus { entries, truncated }
+}
+
 /// Parses the `--format` output above. Tolerant by design: a row we cannot read is skipped
 /// rather than failing the whole page, matching the adapter's posture on worktrunk JSON.
 fn parse_log(stdout: &str) -> Vec<Commit> {
@@ -276,6 +385,116 @@ mod tests {
     #[tokio::test]
     async fn a_non_directory_is_rejected_before_spawning_git() {
         assert!(log(Path::new("/not/a/real/worktree"), 0, 10).await.is_err());
+    }
+
+    fn nul(fields: &[&str]) -> String {
+        format!("{}\0", fields.join("\0"))
+    }
+
+    #[test]
+    fn parses_the_common_status_codes() {
+        let raw = nul(&[
+            "M  staged.txt",
+            " M edited.txt",
+            "?? new.txt",
+            "D  gone.txt",
+        ]);
+        let status = parse_status(&raw);
+
+        assert!(!status.truncated);
+        let paths: Vec<_> = status.entries.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec!["staged.txt", "edited.txt", "new.txt", "gone.txt"]
+        );
+
+        assert_eq!(status.entries[0].index, "M");
+        assert_eq!(status.entries[0].worktree, " ");
+        assert_eq!(status.entries[1].index, " ");
+        assert_eq!(status.entries[1].worktree, "M");
+        assert_eq!(status.entries[2].index, "?");
+        assert_eq!(status.entries[2].worktree, "?");
+    }
+
+    /// `MM` — staged, then edited again. Collapsing the two letters would lose that.
+    #[test]
+    fn keeps_staged_and_unstaged_state_separate() {
+        let status = parse_status(&nul(&["MM both.txt"]));
+        assert_eq!(status.entries[0].index, "M");
+        assert_eq!(status.entries[0].worktree, "M");
+    }
+
+    /// A rename spends two NUL-separated fields; misreading that shifts every later entry.
+    #[test]
+    fn a_rename_consumes_its_original_path() {
+        let status = parse_status(&nul(&["R  now.txt", "before.txt", " M after.txt"]));
+        assert_eq!(status.entries.len(), 2);
+        assert_eq!(status.entries[0].path, "now.txt");
+        assert_eq!(
+            status.entries[0].original_path.as_deref(),
+            Some("before.txt")
+        );
+        assert_eq!(status.entries[1].path, "after.txt");
+        assert_eq!(status.entries[1].original_path, None);
+    }
+
+    /// The reason for `-z`: git would otherwise quote these and we would have to unquote them.
+    #[test]
+    fn paths_with_spaces_and_non_ascii_survive() {
+        let status = parse_status(&nul(&["?? some dir/a file.txt", " M ümlaut.txt"]));
+        assert_eq!(status.entries[0].path, "some dir/a file.txt");
+        assert_eq!(status.entries[1].path, "ümlaut.txt");
+    }
+
+    #[test]
+    fn an_empty_status_is_a_clean_tree() {
+        let status = parse_status("");
+        assert!(status.entries.is_empty());
+        assert!(!status.truncated);
+    }
+
+    #[test]
+    fn a_huge_status_is_capped_and_flagged() {
+        let fields: Vec<String> = (0..MAX_STATUS_ENTRIES + 50)
+            .map(|i| format!(" M file{i}.txt"))
+            .collect();
+        let raw = nul(&fields.iter().map(String::as_str).collect::<Vec<_>>());
+
+        let status = parse_status(&raw);
+        assert_eq!(status.entries.len(), MAX_STATUS_ENTRIES);
+        assert!(
+            status.truncated,
+            "the UI must be able to say the list was cut"
+        );
+    }
+
+    /// End to end against real git, so the flags and `-z` handling are not just assumed.
+    #[tokio::test]
+    async fn reads_a_real_working_tree() {
+        let Some(dir) = scratch_repo("wtdeck-git-status-real") else {
+            return;
+        };
+        std::fs::write(dir.join("a.txt"), "edited").expect("edit a tracked file");
+        std::fs::write(dir.join("brand-new.txt"), "hello").expect("add an untracked file");
+
+        let status = status(&dir).await.expect("status");
+        let by_path = |p: &str| {
+            status
+                .entries
+                .iter()
+                .find(|e| e.path == p)
+                .unwrap_or_else(|| panic!("expected {p} in {:?}", status.entries))
+                .clone()
+        };
+
+        assert_eq!(by_path("a.txt").worktree, "M");
+        let untracked = by_path("brand-new.txt");
+        assert_eq!(
+            (untracked.index.as_str(), untracked.worktree.as_str()),
+            ("?", "?")
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Builds a throwaway repo: two commits on the default branch, then a branch with one of

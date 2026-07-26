@@ -103,6 +103,12 @@ pub async fn list_commits(
     git::log(std::path::Path::new(&worktree_path), skip, limit).await
 }
 
+/// The working tree's changed paths, for the card's status detail view.
+#[tauri::command]
+pub async fn git_status(worktree_path: String) -> DeckResult<git::WorkingTreeStatus> {
+    git::status(std::path::Path::new(&worktree_path)).await
+}
+
 /* ----------------------------------------------- interactive worktrunk tasks */
 
 /// Builds the full argv (binary first) for running a worktrunk subcommand inside a PTY.

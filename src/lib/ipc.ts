@@ -18,6 +18,7 @@ import type {
   PtyOutputEvent,
   RootValidation,
   SessionId,
+  WorkingTreeStatus,
 } from "./types";
 
 /* ------------------------------------------------------------------ schemas */
@@ -72,6 +73,18 @@ const CommitSchema = z.object({
   message: z.string(),
   author: z.string(),
   timestamp: z.number(),
+});
+
+const WorkingTreeStatusSchema = z.object({
+  entries: z.array(
+    z.object({
+      path: z.string(),
+      originalPath: z.string().optional(),
+      index: z.string(),
+      worktree: z.string(),
+    }),
+  ),
+  truncated: z.boolean(),
 });
 
 const CliResultSchema = z.object({
@@ -191,6 +204,11 @@ export function listCommits(
   limit: number,
 ): Promise<Commit[]> {
   return call("list_commits", z.array(CommitSchema), { worktreePath, skip, limit });
+}
+
+/** The worktree's changed paths, for the status detail modal (read-only `git status`). */
+export function gitStatus(worktreePath: string): Promise<WorkingTreeStatus> {
+  return call("git_status", WorkingTreeStatusSchema, { worktreePath });
 }
 
 export function openInEditor(path: string): Promise<void> {

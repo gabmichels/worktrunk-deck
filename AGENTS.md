@@ -28,8 +28,8 @@ makes a worktrunk upgrade a two-file change instead of a hunt.
 - **Only four subcommands may ever be spawned**: `list`, `switch`, `merge`, `remove`. Enforced
   by the `Subcommand` enum in `gitwt.rs`. The webview cannot spawn processes at all. Widening
   this set is a security decision — open an issue before writing the code.
-- **`git` itself is called only from `src-tauri/src/git.rs`**, and only to read: `log` for
-  commit history, plus `rev-parse`/`symbolic-ref` to find the branch to compare against.
+- **`git` itself is called only from `src-tauri/src/git.rs`**, and only to read: `log` for commit history,
+  `status` for the working-tree detail view, plus `rev-parse`/`symbolic-ref` to find the branch to compare against.
   worktrunk has no log subcommand, which is why this exists at all. Flags are fixed literals,
   the caller supplies only a path and two integers, and `--` terminates the argument list. Any
   future `git` need goes in that file under the same rules, or nowhere.
@@ -83,11 +83,12 @@ src/                     React frontend
   lib/adapter.ts         raw worktrunk JSON -> app types  (invariant 2)
   lib/ipc.ts             typed wrappers + zod validation of every backend call
   lib/types.ts           the types components render
-  hooks/                 useWorktrees (polling), useConfig, usePty, useBusy, useCliRun
+  lib/gitStatus.ts       git's status letters -> the groups the detail modal renders
+  hooks/                 useWorktrees (polling), useConfig, usePty, useCommits, useBusy
   components/            UI; ui/ holds the shadcn-style primitives
 src-tauri/src/
   gitwt.rs               the ONLY place that spawns git-wt  (invariant 2)
-  git.rs                 the ONLY place that calls git; read-only log
+  git.rs                 the ONLY place that calls git; read-only log + status
   pty.rs                 terminal sessions (portable-pty)
   config.rs              config persistence, repo discovery, git-wt resolution
   external.rs            open in editor / file manager / OS terminal

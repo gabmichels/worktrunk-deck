@@ -122,6 +122,23 @@ export const DEFAULT_CONFIG: DeckConfig = {
   crossRepoGrouping: false,
 };
 
+/** One changed path from `git status`, with git's two raw status letters. */
+export interface StatusEntry {
+  path: string;
+  /** Set only for renames and copies — the path it came from. */
+  originalPath?: string;
+  /** Staged (index) state: `M`, `A`, `D`, `R`, `C`, `?`, or a space. */
+  index: string;
+  /** Unstaged (working tree) state, same alphabet. */
+  worktree: string;
+}
+
+export interface WorkingTreeStatus {
+  entries: StatusEntry[];
+  /** True when git reported more paths than the backend was willing to return. */
+  truncated: boolean;
+}
+
 /** One entry of a worktree's history, for the expanded card view. */
 export interface Commit {
   shortSha: string;

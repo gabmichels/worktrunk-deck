@@ -41,6 +41,7 @@ pub fn run() {
             commands::merge_worktree_pty,
             commands::remove_worktree,
             commands::list_commits,
+            commands::git_status,
             commands::open_in_editor,
             commands::open_url,
             commands::open_in_file_manager,

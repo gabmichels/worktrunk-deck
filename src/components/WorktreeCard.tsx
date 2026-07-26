@@ -9,6 +9,7 @@ import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { useState } from "react";
 
 import { CommitList } from "@/components/CommitList";
+import { GitStatusModal } from "@/components/GitStatusModal";
 import { StatusDot, type DotTone } from "@/components/StatusDot";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useCommits } from "@/hooks/useCommits";
@@ -28,6 +29,7 @@ export function WorktreeCard({
 }) {
   const w = worktree;
   const [expanded, setExpanded] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
   // Lives at this level (not inside CommitList) so collapsing and re-expanding reuses the
   // already-fetched pages instead of refetching — CommitList only ever mounts while expanded.
   const commits = useCommits(w.path);
@@ -69,7 +71,7 @@ export function WorktreeCard({
         )}
       >
         <BranchCell worktree={w} />
-        <GitCell worktree={w} />
+        <GitCell worktree={w} onInspect={() => setStatusOpen(true)} />
         <AheadBehindCell worktree={w} />
         <HeadCell worktree={w} />
         <PortCell worktree={w} />
@@ -90,6 +92,14 @@ export function WorktreeCard({
             w.isMain ? "No commits yet." : "No commits on this branch yet."
           }
         />
+      )}
+
+      {/* Rendered inside the card but portalled by Radix, so the dialog is not affected by the
+          card's own click handling. Mounted only once opened — one dialog per card otherwise. */}
+      {statusOpen && (
+        <div onClick={(e: MouseEvent) => e.stopPropagation()}>
+          <GitStatusModal worktree={w} open={statusOpen} onOpenChange={setStatusOpen} />
+        </div>
       )}
     </div>
   );
@@ -149,13 +159,27 @@ function describeChanges(w: Worktree): string {
   return `${listed}${counts}${nuance}`;
 }
 
-function GitCell({ worktree: w }: { worktree: Worktree }) {
+function GitCell({ worktree: w, onInspect }: { worktree: Worktree; onInspect: () => void }) {
+  const clean = w.git === "clean";
   return (
-    <Tooltip content={describeChanges(w)}>
-      <div className="hidden items-center gap-1.5 md:flex">
+    <Tooltip content={clean ? describeChanges(w) : `${describeChanges(w)} · click for details`}>
+      <button
+        type="button"
+        // The card's own click toggles expansion; this opens the status modal instead.
+        onClick={(e) => {
+          e.stopPropagation();
+          onInspect();
+        }}
+        disabled={clean}
+        aria-label={clean ? "Working tree is clean" : `Show changed files in ${w.branch}`}
+        className={cn(
+          "hidden items-center gap-1.5 rounded px-1 py-0.5 text-left md:flex",
+          clean ? "cursor-default" : "hover:bg-accent cursor-pointer",
+        )}
+      >
         <StatusDot tone={GIT_TONE[w.git]} />
         <span className="text-[12px]">{GIT_LABEL[w.git]}</span>
-      </div>
+      </button>
     </Tooltip>
   );
 }
