@@ -83,7 +83,14 @@ export function WorktreeCard({
         </div>
       </div>
 
-      {expanded && <CommitList state={commits} />}
+      {expanded && (
+        <CommitList
+          state={commits}
+          emptyLabel={
+            w.isMain ? "No commits yet." : "No commits on this branch yet."
+          }
+        />
+      )}
     </div>
   );
 }

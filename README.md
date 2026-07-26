@@ -144,9 +144,10 @@ allocates ports itself.
 
 - **Only four `git-wt` subcommands** may ever be spawned — `list`, `switch`, `merge`, `remove` —
   enforced in Rust. The webview cannot spawn processes at all.
-- **Exactly one call to `git` itself**, in `src-tauri/src/git.rs`: a read-only `git log` for
-  commit history, which worktrunk has no subcommand for. Every flag is a fixed literal, the
-  caller supplies only a path and two integers, and `--` terminates the argument list.
+- **`git` is called only from `src-tauri/src/git.rs`, and only to read** — `log` for commit
+  history, plus `rev-parse`/`symbolic-ref` to find the branch to compare against. worktrunk has
+  no log subcommand, which is why this exists. Flags are fixed literals, the caller supplies
+  only a path and two integers, and `--` terminates the argument list.
 - **The app never runs a fix on your behalf.** When a repo fails with git's "dubious ownership"
   error, the deck shows the exact `git config --global --add safe.directory …` command with a
   copy button and offers a terminal — it does not execute it.

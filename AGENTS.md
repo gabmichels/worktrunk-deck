@@ -28,10 +28,11 @@ makes a worktrunk upgrade a two-file change instead of a hunt.
 - **Only four subcommands may ever be spawned**: `list`, `switch`, `merge`, `remove`. Enforced
   by the `Subcommand` enum in `gitwt.rs`. The webview cannot spawn processes at all. Widening
   this set is a security decision — open an issue before writing the code.
-- **Exactly one call to `git` itself**, in `src-tauri/src/git.rs`: a read-only `git log` for
-  commit history, which worktrunk has no subcommand for. Fixed literal flags, caller supplies
-  only a path and two integers, `--` terminates the argument list. Any future `git` need goes in
-  that file under the same rules, or nowhere.
+- **`git` itself is called only from `src-tauri/src/git.rs`**, and only to read: `log` for
+  commit history, plus `rev-parse`/`symbolic-ref` to find the branch to compare against.
+  worktrunk has no log subcommand, which is why this exists at all. Flags are fixed literals,
+  the caller supplies only a path and two integers, and `--` terminates the argument list. Any
+  future `git` need goes in that file under the same rules, or nowhere.
 - **The adapter must never throw.** worktrunk ships on its own cadence; an unexpected field must
   degrade one card, not blank the dashboard. `test/fixtures/list.malformed.json` enforces this —
   extend it rather than loosening the test.

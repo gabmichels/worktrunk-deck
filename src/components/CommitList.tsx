@@ -9,7 +9,17 @@ import type { UseCommits } from "@/hooks/useCommits";
 import { relativeTime } from "@/lib/relativeTime";
 import type { Commit } from "@/lib/types";
 
-export function CommitList({ state }: { state: UseCommits }) {
+export function CommitList({
+  state,
+  emptyLabel = "No commits yet.",
+}: {
+  state: UseCommits;
+  /**
+   * History is scoped to the branch's own commits, so "empty" means different things: a fresh
+   * worktree simply has not committed anything yet, while an empty main worktree is a new repo.
+   */
+  emptyLabel?: string;
+}) {
   const { commits, loading, error, hasMore, loadMore } = state;
 
   return (
@@ -25,7 +35,7 @@ export function CommitList({ state }: { state: UseCommits }) {
           <span>Could not load history: {error}</span>
         </div>
       ) : commits.length === 0 && !loading ? (
-        <p className="text-muted-foreground px-1 py-1 text-[11px]">No commits yet.</p>
+        <p className="text-muted-foreground px-1 py-1 text-[11px]">{emptyLabel}</p>
       ) : (
         commits.map((c) => <CommitRow key={c.sha} commit={c} />)
       )}
