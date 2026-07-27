@@ -220,6 +220,37 @@ pub async fn dev_command_line(bin: &Path, worktree: &Path) -> Option<String> {
     parse_dry_run(&result.stdout)
 }
 
+/// Fills a `dev` alias template in for a worktree worktrunk will not expand itself.
+///
+/// `.config/wt.toml` is versioned content and worktrunk reads it from *inside* the worktree, so
+/// a branch created before the alias was committed has no alias at all — `dry-run` there fails
+/// with "unrecognized alias". The repo's other worktrees still have the template, and the
+/// worktree's port is already known from `git-wt list`, so the two can be combined rather than
+/// making the user merge main before they can start a dev server.
+///
+/// `{{ branch | hash_port }}` is substituted from `port` — worktrunk's own reported value, not
+/// a re-derivation of its hash. Any *other* template expression means this is a template we do
+/// not understand, and `None` is returned rather than a command with `{{ … }}` still in it.
+pub fn fill_dev_template(template: &str, port: u16) -> Option<String> {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        let end = rest[start..].find("}}")? + start;
+        let expr: String = rest[start + 2..end]
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        if expr != "branch|hash_port" {
+            return None;
+        }
+        out.push_str(&rest[..start]);
+        out.push_str(&port.to_string());
+        rest = &rest[end + 2..];
+    }
+    out.push_str(rest);
+    (!out.trim().is_empty()).then_some(out)
+}
+
 /// Pulls the expanded command out of `git-wt config alias dry-run dev`:
 ///
 /// ```text
@@ -313,6 +344,51 @@ mod alias_tests {
             "○ Alias dev (project) would run:\n  pnpm --filter web exec next dev -p 10766\n";
         assert_ne!(parse_dry_run(main), parse_dry_run(branch));
         assert!(parse_dry_run(branch).unwrap().ends_with("10766"));
+    }
+
+    use super::fill_dev_template;
+
+    /// The real templates from cw-rag-core and dryll, filled for a worktree worktrunk would
+    /// refuse to expand because that branch has no `.config/wt.toml`.
+    #[test]
+    fn fills_the_port_into_a_real_template() {
+        assert_eq!(
+            fill_dev_template("pnpm --filter web dev -- --port {{ branch | hash_port }}", 12760)
+                .as_deref(),
+            Some("pnpm --filter web dev -- --port 12760")
+        );
+        assert_eq!(
+            fill_dev_template("pnpm --filter web exec next dev -p {{branch|hash_port}}", 10766)
+                .as_deref(),
+            Some("pnpm --filter web exec next dev -p 10766")
+        );
+    }
+
+    /// A template with no placeholder at all is still a usable command.
+    #[test]
+    fn a_template_without_a_placeholder_is_left_alone() {
+        assert_eq!(fill_dev_template("pnpm dev", 12760).as_deref(), Some("pnpm dev"));
+    }
+
+    /// Anything beyond the one expression we understand must produce nothing rather than a
+    /// command with `{{ … }}` left in it — running that would be worse than asking the user.
+    #[test]
+    fn an_unfamiliar_template_expression_is_refused() {
+        for template in [
+            "pnpm dev --name {{ branch }}",
+            "pnpm dev --port {{ branch | hash_port | plus(1) }}",
+            "pnpm dev --root {{ worktree_path }}",
+            // Unterminated: must not silently truncate the command.
+            "pnpm dev --port {{ branch | hash_port",
+        ] {
+            assert_eq!(fill_dev_template(template, 12760), None, "{template}");
+        }
+    }
+
+    #[test]
+    fn an_empty_template_is_not_a_command() {
+        assert_eq!(fill_dev_template("", 12760), None);
+        assert_eq!(fill_dev_template("   ", 12760), None);
     }
 
     /// A repo with no `dev` alias makes dry-run fail; nothing parseable must reach the terminal.

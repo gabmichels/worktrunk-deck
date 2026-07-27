@@ -135,11 +135,13 @@ export interface DevCommand {
  */
 export interface DevPlan {
   /**
-   * `alias` — worktrunk's `dev` alias from the repo's `.config/wt.toml`, which already encodes
-   * both the server's directory and this worktree's port. `config` — the deck's own per-repo
-   * setting, for repos with no alias. `none` — neither, so the user is asked.
+   * `alias` — worktrunk's `dev` alias from the worktree's `.config/wt.toml`, which already
+   * encodes both the server's directory and this worktree's port. `aliasInherited` — the same
+   * template borrowed from the repo, for a branch too old to carry the file, with this
+   * worktree's port filled in. `config` — the deck's own per-repo setting, for repos with no
+   * alias. `none` — neither, so the user is asked.
    */
-  source: "alias" | "config" | "none";
+  source: "alias" | "aliasInherited" | "config" | "none";
   /**
    * The command line to run, in shell syntax. Empty when `source` is `none`.
    *

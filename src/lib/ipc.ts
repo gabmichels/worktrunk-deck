@@ -228,7 +228,7 @@ export function openInFileManager(path: string): Promise<void> {
 }
 
 const DevPlanSchema = z.object({
-  source: z.enum(["alias", "config", "none"]),
+  source: z.enum(["alias", "aliasInherited", "config", "none"]),
   commandLine: z.string(),
   argv: z.array(z.string()),
   cwd: z.string(),
@@ -239,8 +239,12 @@ const DevPlanSchema = z.object({
  * What "Run dev" should run for a worktree: worktrunk's `dev` alias, the deck's own per-repo
  * command, or neither (`source: "none"` — ask the user).
  */
-export async function devPlan(repoPath: string, worktreePath: string): Promise<DevPlan> {
-  return DevPlanSchema.parse(await invoke("dev_plan", { repoPath, worktreePath }));
+export async function devPlan(
+  repoPath: string,
+  worktreePath: string,
+  port: number | null,
+): Promise<DevPlan> {
+  return DevPlanSchema.parse(await invoke("dev_plan", { repoPath, worktreePath, port }));
 }
 
 /** The repo's worktrunk `dev` alias template, unexpanded, or null. Display only. */

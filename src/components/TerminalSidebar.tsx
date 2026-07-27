@@ -51,6 +51,18 @@ export interface TerminalSession {
 }
 
 /**
+ * The port worktrunk assigned this worktree, read off the URL it reported.
+ *
+ * Read, never computed: the port is worktrunk's to decide (plan §3.2), and this is the value it
+ * already published for exactly this worktree.
+ */
+function portOf(url: string | null): number | null {
+  if (!url) return null;
+  const port = Number(url.match(/:(\d{2,5})(?:\/|$)/)?.[1]);
+  return Number.isInteger(port) ? port : null;
+}
+
+/**
  * Says so when the terminal chosen in Settings could not be used.
  *
  * Not an error — the command did run — but silently opening a terminal the user did not pick
@@ -161,15 +173,19 @@ export function useTerminalSessions() {
 
       if (cmdOverride && cmdOverride.length > 0) {
         // Answered the prompt: a one-off, so it gets the worktree root and no alias lookup.
+        // `{port}` is still honoured — it is offered in the dialog, so it has to work there.
+        const port = portOf(w.url);
+        const cmd =
+          port === null ? cmdOverride : cmdOverride.map((a) => a.replaceAll("{port}", `${port}`));
         if (external) {
-          notifyFallback(await runExternal(w.path, cmdOverride.join(" ")));
+          notifyFallback(await runExternal(w.path, cmd.join(" ")));
           return;
         }
-        await openSession(w, "dev", cmdOverride);
+        await openSession(w, "dev", cmd);
         return;
       }
 
-      const plan = await devPlan(w.repoPath, w.path);
+      const plan = await devPlan(w.repoPath, w.path, portOf(w.url));
       if (plan.source === "none") {
         // Nothing configured anywhere — ask instead of guessing (spec: don't guess).
         setPendingDevPrompt(w);
@@ -298,6 +314,7 @@ export function RunDevPromptDialog({
   onCancel: () => void;
 }) {
   const [value, setValue] = useState("");
+  const port = portOf(worktree?.url ?? null);
 
   useEffect(() => {
     setValue("");
@@ -310,19 +327,30 @@ export function RunDevPromptDialog({
           <DialogTitle>Run dev command</DialogTitle>
           <DialogDescription>
             No dev command is configured for{" "}
-            <span className="font-mono">{worktree?.repo}</span>. Enter one to run in{" "}
-            <span className="font-mono">{worktree?.branch}</span>.
+            <span className="font-mono">{worktree?.repo}</span>, and{" "}
+            <span className="font-mono">{worktree?.branch}</span> has no worktrunk{" "}
+            <span className="font-mono">dev</span> alias. Enter one to run there.
           </DialogDescription>
         </DialogHeader>
         <Input
           autoFocus
-          placeholder="pnpm dev"
+          placeholder={port ? `pnpm dev -- --port ${port}` : "pnpm dev"}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && value.trim()) onSubmit(splitCommand(value));
           }}
         />
+        {/* The port is the whole point of a worktree, and a server started on the default one
+            collides with every other worktree — so say which port this one is meant to use. */}
+        {port !== null && (
+          <p className="text-muted-foreground text-[11px]">
+            worktrunk assigned this worktree port{" "}
+            <span className="font-mono">{port}</span>. Use{" "}
+            <span className="font-mono">{"{port}"}</span> in the command and it is filled in
+            per worktree — save it under Settings → Dev commands to stop being asked.
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
             Cancel

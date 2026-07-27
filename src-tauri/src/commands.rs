@@ -234,14 +234,15 @@ pub async fn dev_plan(
     app: AppHandle,
     repo_path: String,
     worktree_path: String,
+    port: Option<u16>,
 ) -> DeckResult<DevPlan> {
     let cfg = config::load(&app)?;
     let worktree = std::path::PathBuf::from(&worktree_path);
+    let repo = std::path::PathBuf::from(&repo_path);
 
     if let Ok(bin) = config::locate_gitwt(&cfg) {
-        // Probed on the **worktree**, not the repo. `.config/wt.toml` is versioned content: a
-        // branch created before the alias was committed genuinely does not have it, and
-        // claiming otherwise would hand the terminal a command that cannot run there.
+        // Expanded against the **worktree**, not the repo: `hash_port` comes from the branch,
+        // so every worktree gets its own port.
         if let Some(command_line) = gitwt::dev_command_line(&bin, &worktree).await {
             return Ok(DevPlan {
                 source: "alias",
@@ -253,16 +254,41 @@ pub async fn dev_plan(
                 alias: gitwt::dev_alias(&bin, &worktree).await,
             });
         }
+
+        // The worktree has no alias, but the repo might: `.config/wt.toml` is versioned, so a
+        // branch older than that commit simply does not carry it. Borrow the template from the
+        // repo and fill in this worktree's own port rather than making the user merge main
+        // before they can start a dev server.
+        if let (Some(template), Some(port)) = (gitwt::dev_alias(&bin, &repo).await, port) {
+            if let Some(command_line) = gitwt::fill_dev_template(&template, port) {
+                return Ok(DevPlan {
+                    source: "aliasInherited",
+                    argv: pty::shell_argv(&command_line),
+                    command_line,
+                    cwd: worktree_path,
+                    alias: Some(template),
+                });
+            }
+        }
     }
 
     match cfg.dev_for(&repo_path) {
         Some(dev) if !dev.command.is_empty() => {
-            let command_line = external::join_command(&dev.command);
+            // `{port}` lets one saved command serve every worktree, which is the only way a
+            // per-repo setting can work when each worktree listens on a different port.
+            let command: Vec<String> = dev
+                .command
+                .iter()
+                .map(|a| match port {
+                    Some(p) => a.replace("{port}", &p.to_string()),
+                    None => a.clone(),
+                })
+                .collect();
             Ok(DevPlan {
                 source: "config",
                 // Spawned directly: this one is argv already, so it needs no shell to parse it.
-                argv: dev.command.clone(),
-                command_line,
+                command_line: external::join_command(&command),
+                argv: command,
                 cwd: config::resolve_dev_cwd(&worktree_path, dev.cwd.as_deref()),
                 alias: None,
             })
