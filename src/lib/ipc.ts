@@ -226,9 +226,18 @@ export function openInFileManager(path: string): Promise<void> {
   return invoke("open_in_file_manager", { path });
 }
 
-/** Launches the repo's dev command in the OS terminal instead of the integrated one (REQ-8). */
-export function runExternal(repoPath: string, worktreePath: string): Promise<void> {
-  return invoke("run_external", { repoPath, worktreePath });
+/**
+ * Opens the OS terminal at a worktree instead of the integrated one (REQ-8).
+ *
+ * `devCommand` is what separates "Open terminal" from "Run dev": omit it for a plain shell,
+ * pass one to start the dev server. The backend does not look it up — see `run_external`.
+ */
+export function runExternal(
+  repoPath: string,
+  worktreePath: string,
+  devCommand?: string[],
+): Promise<void> {
+  return invoke("run_external", { repoPath, worktreePath, devCommand });
 }
 
 const TerminalChoiceSchema = z.object({

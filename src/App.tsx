@@ -13,7 +13,11 @@ import { IsolatedWorktrees } from "@/components/IsolatedWorktrees";
 import { NewWorktreeModal } from "@/components/NewWorktreeModal";
 import { RepoSection } from "@/components/RepoSection";
 import { SettingsModal } from "@/components/SettingsModal";
-import { TerminalSidebar, useTerminalSessions } from "@/components/TerminalSidebar";
+import {
+  RunDevPromptDialog,
+  TerminalSidebar,
+  useTerminalSessions,
+} from "@/components/TerminalSidebar";
 import { WorktreeActions } from "@/components/WorktreeActions";
 import { BusyProvider, useBusy } from "@/hooks/useBusy";
 import { ConfigProvider, messageOf, useConfig } from "@/hooks/useConfig";
@@ -149,23 +153,31 @@ function Deck() {
    */
   const useExternalTerminal = config.preferExternalTerminal === true;
 
-  const launchExternal = (w: Worktree, label: string) =>
-    void track(label, () => ipc.runExternal(w.repoPath, w.path)).catch((e: unknown) =>
-      toast.error("Could not open your terminal", { description: messageOf(e) }),
-    );
-
   /** Opening a terminal should reveal the sidebar — otherwise the tab appears nowhere. */
   // Spawning a PTY is usually instant but can stall briefly on a cold shell profile, which
   // would otherwise look like the click did nothing.
   const openTerminal = (w: Worktree) => {
-    if (useExternalTerminal) return launchExternal(w, "Opening terminal");
+    if (useExternalTerminal) {
+      void track("Opening terminal", () => ipc.runExternal(w.repoPath, w.path)).catch(
+        (e: unknown) =>
+          toast.error("Could not open your terminal", { description: messageOf(e) }),
+      );
+      return;
+    }
     setTerminalOpen(true);
     void track("Opening terminal", () => terminals.openTerminal(w));
   };
+
+  /**
+   * Unlike "Open terminal", this cannot shortcut to the OS terminal: it first needs a dev
+   * command, and asking for one when the repo has none configured is `terminals.runDev`'s job
+   * in both modes. It picks the destination once it has a command to run.
+   */
   const runDev = (w: Worktree) => {
-    if (useExternalTerminal) return launchExternal(w, "Starting dev server");
-    setTerminalOpen(true);
-    void track("Starting dev server", () => terminals.runDev(w));
+    if (!useExternalTerminal) setTerminalOpen(true);
+    void track("Starting dev server", () => terminals.runDev(w)).catch((e: unknown) =>
+      toast.error("Could not start the dev server", { description: messageOf(e) }),
+    );
   };
   const openTerminalAt = (path: string) => {
     setTerminalOpen(true);
@@ -307,6 +319,18 @@ function Deck() {
       />
       <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
       <HelpModal open={helpOpen} onOpenChange={setHelpOpen} />
+      {/* Outside the sidebar: with an external terminal preferred the sidebar never opens, and
+          "Run dev" on an unconfigured repo still has to be able to ask for a command. */}
+      <RunDevPromptDialog
+        worktree={terminals.pendingDevPrompt}
+        onSubmit={(cmd) =>
+          void track("Starting dev server", () => terminals.submitDevPrompt(cmd)).catch(
+            (e: unknown) =>
+              toast.error("Could not start the dev server", { description: messageOf(e) }),
+          )
+        }
+        onCancel={terminals.cancelDevPrompt}
+      />
     </div>
   );
 }

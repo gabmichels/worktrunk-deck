@@ -27,6 +27,7 @@ import {
   onPtyExit,
   ptyKill,
   ptyOpen,
+  runExternal,
 } from "@/lib/ipc";
 import { forgetPtySession, startPtyStream } from "@/lib/ptyStream";
 import type { DevCommand, SessionId, Worktree } from "@/lib/types";
@@ -166,6 +167,14 @@ export function useTerminalSessions() {
     setActiveId(id);
   }, []);
 
+  /**
+   * Resolving the command has to happen *before* choosing where to run it, in both modes.
+   *
+   * With `preferExternalTerminal` on, App.tsx used to jump straight to the OS terminal and let
+   * the backend look the command up. On a repo with none configured that opened a bare shell
+   * and ran nothing — "Run dev" looked broken. The prompt is the answer in either mode; only
+   * the destination differs.
+   */
   const runDev = useCallback(
     async (w: Worktree, cmdOverride?: string[]) => {
       const dev = lookupDev(config.devByRepo, w.repoPath);
@@ -175,9 +184,13 @@ export function useTerminalSessions() {
         setPendingDevPrompt(w);
         return;
       }
+      if (config.preferExternalTerminal === true) {
+        await runExternal(w.repoPath, w.path, cmd);
+        return;
+      }
       await openSession(w, "dev", cmd, devCwd(w.path, dev?.cwd));
     },
-    [config.devByRepo, openSession],
+    [config.devByRepo, config.preferExternalTerminal, openSession],
   );
 
   /**
@@ -244,14 +257,16 @@ export function useTerminalSessions() {
     setActiveId(null);
   }, [sessions]);
 
+  // Back through `runDev` so the answer lands wherever a configured command would have — a
+  // non-empty override cannot re-trigger the prompt, so there is no loop.
   const submitDevPrompt = useCallback(
     async (cmd: string[]) => {
       const w = pendingDevPrompt;
       setPendingDevPrompt(null);
       if (!w || cmd.length === 0) return;
-      await openSession(w, "dev", cmd);
+      await runDev(w, cmd);
     },
-    [pendingDevPrompt, openSession],
+    [pendingDevPrompt, runDev],
   );
 
   return {
@@ -265,8 +280,8 @@ export function useTerminalSessions() {
     mergeWorktree,
     closeSession,
     closeAll,
-    // Internal to TerminalSidebar's prompt dialog — not part of the App.tsx contract, but
-    // exposing it here keeps the dialog itself un-owned by any single tab/pane.
+    // Drives `RunDevPromptDialog`, which App.tsx renders — it has to be reachable with the
+    // sidebar collapsed, so it is not owned by any tab or pane.
     pendingDevPrompt,
     submitDevPrompt,
     cancelDevPrompt: () => setPendingDevPrompt(null),
@@ -278,7 +293,11 @@ function splitCommand(input: string): string[] {
   return input.trim().split(/\s+/).filter(Boolean);
 }
 
-function RunDevPromptDialog({
+/**
+ * Rendered by App.tsx, not by the sidebar: with `preferExternalTerminal` on the sidebar is
+ * never opened, and a dialog living inside it would never appear.
+ */
+export function RunDevPromptDialog({
   worktree,
   onSubmit,
   onCancel,
@@ -388,16 +407,7 @@ export function TerminalSidebar({
   controller: ReturnType<typeof useTerminalSessions>;
   onCollapse: () => void;
 }) {
-  const {
-    sessions,
-    activeId,
-    setActiveId,
-    closeSession,
-    closeAll,
-    pendingDevPrompt,
-    submitDevPrompt,
-    cancelDevPrompt,
-  } = controller;
+  const { sessions, activeId, setActiveId, closeSession, closeAll } = controller;
 
   // Track sessions that have been closed so already-unmounted TerminalTabs don't get recreated
   // if a stale id ever slips back in — belt-and-suspenders, `sessions` is already filtered.
@@ -462,12 +472,6 @@ export function TerminalSidebar({
           ))
         )}
       </div>
-
-      <RunDevPromptDialog
-        worktree={pendingDevPrompt}
-        onSubmit={(cmd) => void submitDevPrompt(cmd)}
-        onCancel={cancelDevPrompt}
-      />
     </div>
   );
 }

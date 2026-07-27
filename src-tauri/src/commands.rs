@@ -198,22 +198,40 @@ pub fn list_terminals() -> Vec<terminals::TerminalChoice> {
     terminals::list()
 }
 
-/// Launches the repo's dev command in the OS terminal instead of the integrated one (REQ-8).
+/// Opens the OS terminal at a worktree instead of the integrated one, running `dev_command` in
+/// it when one is given (REQ-8).
+///
+/// The command is passed in rather than looked up here. The caller is the only one that knows
+/// whether this is "Open terminal" or "Run dev", and it may carry a one-off command the user
+/// just typed into the prompt. Reading it from the config instead meant an external "Open
+/// terminal" silently started the dev server, and an external "Run dev" on an unconfigured repo
+/// silently opened a bare shell — the click appeared to do nothing.
 #[tauri::command]
-pub fn run_external(app: AppHandle, repo_path: String, worktree_path: String) -> DeckResult<()> {
+pub fn run_external(
+    app: AppHandle,
+    repo_path: String,
+    worktree_path: String,
+    dev_command: Option<Vec<String>>,
+) -> DeckResult<()> {
     let cfg = config::load(&app)?;
-    let dev = cfg.dev_for(&repo_path);
+    let dev = dev_command.filter(|c| !c.is_empty());
 
     // Honour the configured working directory here too, so "Run externally" and the integrated
     // terminal start the server in the same place — a monorepo's dev command lives in a
-    // subdirectory of the worktree, not at its root.
-    let dir = config::resolve_dev_cwd(&worktree_path, dev.as_ref().and_then(|d| d.cwd.as_deref()));
+    // subdirectory of the worktree, not at its root. Only for a dev run: opening a terminal is
+    // about the worktree itself.
+    let dir = match dev {
+        Some(_) => {
+            let configured = cfg.dev_for(&repo_path);
+            config::resolve_dev_cwd(
+                &worktree_path,
+                configured.as_ref().and_then(|d| d.cwd.as_deref()),
+            )
+        }
+        None => worktree_path,
+    };
 
-    external::run_external(
-        &dir,
-        dev.as_ref().map(|d| d.command.as_slice()),
-        cfg.external_terminal.as_deref(),
-    )
+    external::run_external(&dir, dev.as_deref(), cfg.external_terminal.as_deref())
 }
 
 /* --------------------------------------------------------------------- PTY */
