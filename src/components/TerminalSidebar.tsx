@@ -23,6 +23,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useConfig } from "@/hooks/useConfig";
 import {
   createWorktreePty,
+  devPlan,
   mergeWorktreePty,
   onPtyExit,
   ptyKill,
@@ -30,7 +31,7 @@ import {
   runExternal,
 } from "@/lib/ipc";
 import { forgetPtySession, startPtyStream } from "@/lib/ptyStream";
-import type { DevCommand, SessionId, Worktree } from "@/lib/types";
+import type { SessionId, Worktree } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { TerminalTab } from "./TerminalTab";
@@ -46,42 +47,6 @@ export interface TerminalSession {
   kind: "shell" | "dev" | "task";
   exited: boolean;
   exitCode: number | null;
-}
-
-/**
- * `devByRepo` is keyed by whatever path shape the config author typed. worktrunk always emits
- * forward-slash paths on Windows (plan §3.2), but a human editing the config JSON by hand might
- * paste a backslash path from Explorer, and drive letters can vary in case — so match
- * case-insensitively after normalizing separators rather than requiring an exact string match.
- */
-function normalizePath(p: string): string {
-  return p.replace(/\\/g, "/").toLowerCase();
-}
-
-function lookupDev(
-  devByRepo: Record<string, DevCommand> | undefined,
-  repoPath: string,
-): DevCommand | undefined {
-  if (!devByRepo) return undefined;
-  const target = normalizePath(repoPath);
-  for (const [key, dev] of Object.entries(devByRepo)) {
-    if (normalizePath(key) === target) return dev;
-  }
-  return undefined;
-}
-
-/**
- * Resolves a dev command's working directory against the worktree.
- *
- * `cwd` is relative to the **worktree**, not the repo: a monorepo keeps its dev server in e.g.
- * `apps/web`, and every worktree has its own copy of that subtree — resolving against the repo
- * root would start the server in the wrong checkout, which is exactly the isolation worktrunk
- * exists to provide.
- */
-function devCwd(worktreePath: string, cwd?: string): string {
-  const rel = cwd?.trim().replace(/^[/\\]+|[/\\]+$/g, "");
-  if (!rel) return worktreePath;
-  return `${worktreePath.replace(/[/\\]+$/, "")}/${rel.replace(/\\/g, "/")}`;
 }
 
 function basename(path: string): string {
@@ -168,29 +133,41 @@ export function useTerminalSessions() {
   }, []);
 
   /**
-   * Resolving the command has to happen *before* choosing where to run it, in both modes.
+   * Resolving *what* to run has to happen before choosing *where* to run it, in both modes.
    *
    * With `preferExternalTerminal` on, App.tsx used to jump straight to the OS terminal and let
    * the backend look the command up. On a repo with none configured that opened a bare shell
    * and ran nothing — "Run dev" looked broken. The prompt is the answer in either mode; only
    * the destination differs.
+   *
+   * `devPlan` also prefers worktrunk's own `dev` alias over the deck's setting, so a repo whose
+   * `.config/wt.toml` already names the server's directory and this worktree's port needs no
+   * deck configuration at all.
    */
   const runDev = useCallback(
     async (w: Worktree, cmdOverride?: string[]) => {
-      const dev = lookupDev(config.devByRepo, w.repoPath);
-      const cmd = cmdOverride ?? dev?.command;
-      if (!cmd || cmd.length === 0) {
-        // No configured command for this repo — ask instead of guessing (spec: don't guess).
+      const external = config.preferExternalTerminal === true;
+
+      if (cmdOverride && cmdOverride.length > 0) {
+        // Answered the prompt: a one-off, so it gets the worktree root and no alias lookup.
+        if (external) return runExternal(w.repoPath, w.path, cmdOverride);
+        await openSession(w, "dev", cmdOverride);
+        return;
+      }
+
+      const plan = await devPlan(w.repoPath, w.path);
+      if (plan.source === "none") {
+        // Nothing configured anywhere — ask instead of guessing (spec: don't guess).
         setPendingDevPrompt(w);
         return;
       }
-      if (config.preferExternalTerminal === true) {
-        await runExternal(w.repoPath, w.path, cmd);
+      if (external) {
+        await runExternal(w.repoPath, w.path, plan.command);
         return;
       }
-      await openSession(w, "dev", cmd, devCwd(w.path, dev?.cwd));
+      await openSession(w, "dev", plan.argv, plan.cwd);
     },
-    [config.devByRepo, config.preferExternalTerminal, openSession],
+    [config.preferExternalTerminal, openSession],
   );
 
   /**

@@ -129,6 +129,26 @@ export interface DevCommand {
   cwd?: string;
 }
 
+/**
+ * What "Run dev" should run for one worktree, decided by the backend so the integrated terminal
+ * and the OS terminal cannot disagree.
+ */
+export interface DevPlan {
+  /**
+   * `alias` — worktrunk's `dev` alias from the repo's `.config/wt.toml`, which already encodes
+   * both the server's directory and this worktree's port. `config` — the deck's own per-repo
+   * setting, for repos with no alias. `none` — neither, so the user is asked.
+   */
+  source: "alias" | "config" | "none";
+  /** As a person would type it. For the OS terminal, which runs it through a shell already. */
+  command: string[];
+  /** The same command as PTY argv — shell-wrapped for an alias, which only the shell resolves. */
+  argv: string[];
+  cwd: string;
+  /** The alias template, unexpanded. Display only; null unless `source` is `alias`. */
+  alias: string | null;
+}
+
 export const DEFAULT_CONFIG: DeckConfig = {
   version: 1,
   repos: [],

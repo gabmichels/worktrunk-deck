@@ -317,7 +317,11 @@ function Deck() {
         onCreate={createWorktree}
         defaultRepoPath={selectedRepoPath}
       />
-      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsModal
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        discoveredRepos={(snapshot?.repos ?? []).map((r) => r.repoPath)}
+      />
       <HelpModal open={helpOpen} onOpenChange={setHelpOpen} />
       {/* Outside the sidebar: with an external terminal preferred the sidebar never opens, and
           "Run dev" on an unconfigured repo still has to be able to ask for a command. */}

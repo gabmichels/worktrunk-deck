@@ -198,6 +198,88 @@ pub fn list_terminals() -> Vec<terminals::TerminalChoice> {
     terminals::list()
 }
 
+/* --------------------------------------------------------------- run dev */
+
+/// How "Run dev" should start the server for one worktree.
+///
+/// Deciding this in Rust keeps one answer for both destinations — the integrated PTY and the OS
+/// terminal — instead of two frontends re-deriving it and drifting.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DevPlan {
+    /// `"alias"` — worktrunk's `dev` alias; `"config"` — the deck's own per-repo setting;
+    /// `"none"` — neither, so the caller must ask.
+    pub source: &'static str,
+    /// The command as a person would type it. Handed to the OS terminal, which runs it through
+    /// a shell already.
+    pub command: Vec<String>,
+    /// The same command as PTY argv. For an alias this is shell-wrapped, because `dev` only
+    /// exists inside worktrunk's shell wrapper — see [`pty::shell_argv`].
+    pub argv: Vec<String>,
+    pub cwd: String,
+    /// The alias template, unexpanded, for Settings to show. `None` unless `source == "alias"`.
+    pub alias: Option<String>,
+}
+
+/// Works out what "Run dev" should run in `worktree_path`.
+///
+/// worktrunk's alias wins over the deck's own setting. A repo that declares
+/// `[aliases] dev` in `.config/wt.toml` has already said which directory the server lives in
+/// and which port this worktree gets — both versioned with the repo and shared by everyone
+/// working in it. Re-specifying that in deck settings would be a second source of truth that
+/// silently disagrees the moment either side changes.
+#[tauri::command]
+pub async fn dev_plan(
+    app: AppHandle,
+    repo_path: String,
+    worktree_path: String,
+) -> DeckResult<DevPlan> {
+    let cfg = config::load(&app)?;
+
+    if let Ok(bin) = config::locate_gitwt(&cfg) {
+        if let Some(alias) = gitwt::dev_alias(&bin, std::path::Path::new(&repo_path)).await {
+            let command = gitwt::dev_argv();
+            return Ok(DevPlan {
+                source: "alias",
+                argv: pty::shell_argv(&command.join(" ")),
+                command,
+                // The alias runs from the worktree root; where the server actually lives is the
+                // alias's own business (`pnpm --filter web`, a `-C`, a `cd` — worktrunk's call).
+                cwd: worktree_path,
+                alias: Some(alias),
+            });
+        }
+    }
+
+    match cfg.dev_for(&repo_path) {
+        Some(dev) if !dev.command.is_empty() => Ok(DevPlan {
+            source: "config",
+            argv: dev.command.clone(),
+            command: dev.command.clone(),
+            cwd: config::resolve_dev_cwd(&worktree_path, dev.cwd.as_deref()),
+            alias: None,
+        }),
+        _ => Ok(DevPlan {
+            source: "none",
+            command: Vec::new(),
+            argv: Vec::new(),
+            cwd: worktree_path,
+            alias: None,
+        }),
+    }
+}
+
+/// The `dev` alias template for a repo, or `None`. Settings uses it to show what "Run dev" will
+/// run, and to explain why the deck's own command field is not being used.
+#[tauri::command]
+pub async fn dev_alias(app: AppHandle, repo_path: String) -> DeckResult<Option<String>> {
+    let cfg = config::load(&app)?;
+    let Ok(bin) = config::locate_gitwt(&cfg) else {
+        return Ok(None);
+    };
+    Ok(gitwt::dev_alias(&bin, std::path::Path::new(&repo_path)).await)
+}
+
 /// Opens the OS terminal at a worktree instead of the integrated one, running `dev_command` in
 /// it when one is given (REQ-8).
 ///

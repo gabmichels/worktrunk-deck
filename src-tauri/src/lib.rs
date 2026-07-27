@@ -47,6 +47,8 @@ pub fn run() {
             commands::open_url,
             commands::open_in_file_manager,
             commands::run_external,
+            commands::dev_plan,
+            commands::dev_alias,
             commands::list_terminals,
             commands::pty_open,
             commands::pty_write,

@@ -13,6 +13,7 @@ import type {
   CliResult,
   Commit,
   DeckConfig,
+  DevPlan,
   GitWtResolution,
   PtyExitEvent,
   PtyOutputEvent,
@@ -224,6 +225,27 @@ export function openUrl(url: string): Promise<void> {
 /** Reveals a path in Explorer / Finder / the XDG file manager. */
 export function openInFileManager(path: string): Promise<void> {
   return invoke("open_in_file_manager", { path });
+}
+
+const DevPlanSchema = z.object({
+  source: z.enum(["alias", "config", "none"]),
+  command: z.array(z.string()),
+  argv: z.array(z.string()),
+  cwd: z.string(),
+  alias: z.string().nullable(),
+});
+
+/**
+ * What "Run dev" should run for a worktree: worktrunk's `dev` alias, the deck's own per-repo
+ * command, or neither (`source: "none"` — ask the user).
+ */
+export async function devPlan(repoPath: string, worktreePath: string): Promise<DevPlan> {
+  return DevPlanSchema.parse(await invoke("dev_plan", { repoPath, worktreePath }));
+}
+
+/** The repo's worktrunk `dev` alias template, unexpanded, or null. Display only. */
+export async function devAlias(repoPath: string): Promise<string | null> {
+  return z.string().nullable().parse(await invoke("dev_alias", { repoPath }));
 }
 
 /**

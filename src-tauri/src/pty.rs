@@ -284,6 +284,37 @@ pub fn session_count(registry: &PtyRegistry) -> usize {
         .len()
 }
 
+/// argv that runs `cmd` **through the user's shell**, with their profile loaded.
+///
+/// Spawning argv directly is right for a real program, but wrong for anything the shell itself
+/// provides. worktrunk's `dev` alias is the case in point: `git-wt.exe dev` exits with
+/// "unrecognized subcommand" because `dev` only exists as the wrapper function worktrunk
+/// installs in the profile. Going through the shell is what makes it resolve.
+///
+/// The window is kept open after the command exits (`-NoExit`, `exec $SHELL`) so a dev server
+/// that dies on startup leaves its error on screen instead of closing the tab.
+pub fn shell_argv(cmd: &str) -> Vec<String> {
+    let shell = default_shell();
+    #[cfg(windows)]
+    {
+        // `-Command` loads the profile; only `-NoProfile` would skip it, which is exactly what
+        // we must not do here.
+        if shell.to_ascii_lowercase().ends_with("cmd.exe") {
+            return vec![shell, "/k".into(), cmd.to_string()];
+        }
+        vec![shell, "-NoExit".into(), "-Command".into(), cmd.to_string()]
+    }
+    #[cfg(not(windows))]
+    {
+        // `-i` so the rc file that defines the wrapper is read; `-l` alone skips it on bash.
+        vec![
+            shell,
+            "-ic".into(),
+            format!("{cmd}; exec ${{SHELL:-/bin/sh}}"),
+        ]
+    }
+}
+
 /// The user's interactive shell. `SHELL`/`COMSPEC` are what the OS itself uses, so honour them
 /// before falling back.
 fn default_shell() -> String {

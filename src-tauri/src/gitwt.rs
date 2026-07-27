@@ -25,6 +25,12 @@ pub enum Subcommand {
     Switch,
     Merge,
     Remove,
+    /// `config alias show` — reports the repo's alias templates and runs none of them.
+    ///
+    /// Deliberately *not* a general `config` variant. That subcommand also reaches
+    /// `approvals add`, `state` and `create`, which write; this one names the whole read-only
+    /// invocation so no caller can widen it by passing different args (see [`Self::fixed_args`]).
+    ConfigAliasShow,
 }
 
 impl Subcommand {
@@ -34,6 +40,16 @@ impl Subcommand {
             Subcommand::Switch => "switch",
             Subcommand::Merge => "merge",
             Subcommand::Remove => "remove",
+            Subcommand::ConfigAliasShow => "config",
+        }
+    }
+
+    /// Args baked into the variant, placed before any caller args. This is what lets a variant
+    /// mean one specific invocation rather than a whole subcommand tree.
+    fn fixed_args(self) -> &'static [&'static str] {
+        match self {
+            Subcommand::ConfigAliasShow => &["alias", "show"],
+            _ => &[],
         }
     }
 
@@ -51,6 +67,8 @@ impl Subcommand {
             "switch" => Ok(Subcommand::Switch),
             "merge" => Ok(Subcommand::Merge),
             "remove" => Ok(Subcommand::Remove),
+            // `config` is intentionally absent: `ConfigAliasShow` is constructible only in Rust,
+            // so a bare "config" arriving as a string stays rejected along with everything else.
             other => Err(DeckError::NotAllowed(other.to_string())),
         }
     }
@@ -63,6 +81,7 @@ pub fn build_args(repo: &Path, sub: Subcommand, args: &[String]) -> Vec<String> 
         repo.to_string_lossy().into_owned(),
         sub.as_str().to_string(),
     ];
+    all.extend(sub.fixed_args().iter().map(|a| a.to_string()));
     all.extend_from_slice(args);
     all
 }
@@ -121,6 +140,120 @@ pub async fn run_checked(
         code: "non-zero".into(),
         stderr: detail,
     })
+}
+
+/* ----------------------------------------------------------------- aliases */
+
+/// The repo's `dev` alias template, or `None` when it has none.
+///
+/// A repo that configures `[aliases] dev` in `.config/wt.toml` has already answered both
+/// questions the deck would otherwise ask: *which* directory the server lives in, and *which*
+/// port this worktree gets. cw-rag-core's is
+/// `pnpm --filter web dev -- --port {{ branch | hash_port }}` — the subdirectory and the port
+/// in one line, versioned with the repo. Reading it beats duplicating it in deck settings, and
+/// keeps worktrunk the single source of truth for a worktree's port (plan §3.5).
+///
+/// Returned **unexpanded**, template braces and all: it is display text for Settings, never
+/// something to run. Running it is worktrunk's job — see `dev_argv`.
+pub async fn dev_alias(bin: &Path, repo: &Path) -> Option<String> {
+    let result = run(bin, repo, Subcommand::ConfigAliasShow, &[]).await.ok()?;
+    if !result.ok {
+        return None;
+    }
+    parse_dev_alias(&result.stdout)
+}
+
+/// Pulls the `dev` template out of `git-wt config alias show`, whose output looks like:
+///
+/// ```text
+/// ○ Alias dev (project):
+///   pnpm --filter web dev -- --port {{ branch | hash_port }}
+/// ○ Alias url (project):
+///   echo http://localhost:{{ branch | hash_port }}
+/// ```
+///
+/// The template is the line *after* its header, so this is a two-line scan rather than a regex
+/// over the whole blob. Anything that does not match that shape yields `None` — an unreadable
+/// alias must look like "no alias" and fall back to the deck's own setting, never like an
+/// empty command.
+fn parse_dev_alias(stdout: &str) -> Option<String> {
+    let mut lines = stdout.lines();
+    while let Some(line) = lines.next() {
+        let header = line.trim_start_matches(['○', '●', '✓', ' ']).trim();
+        // `(project)` or `(user)` — the scope is irrelevant, only that this is the dev alias.
+        if !header.starts_with("Alias dev ") && header != "Alias dev:" {
+            continue;
+        }
+        let template = lines.next()?.trim();
+        return (!template.is_empty()).then(|| template.to_string());
+    }
+    None
+}
+
+/// The argv that runs the repo's `dev` alias in `worktree`.
+///
+/// `dev` is an *alias*, not a subcommand: `git-wt.exe dev` exits with "unrecognized subcommand".
+/// The shell wrapper worktrunk installs is what turns it into the expanded command, so this has
+/// to be run through a shell that loads the user's profile — which is exactly what an interactive
+/// terminal does, and why this returns argv for a terminal rather than something to spawn
+/// directly.
+pub fn dev_argv() -> Vec<String> {
+    vec!["git-wt".to_string(), "dev".to_string()]
+}
+
+#[cfg(test)]
+mod alias_tests {
+    use super::parse_dev_alias;
+
+    /// Verbatim from `git-wt v0.60.0 -C C:\Workspace\cw-rag-core config alias show`.
+    const REAL_OUTPUT: &str = "\
+○ Alias dev (project):
+  pnpm --filter web dev -- --port {{ branch | hash_port }}
+○ Alias url (project):
+  echo http://localhost:{{ branch | hash_port }}
+";
+
+    #[test]
+    fn reads_the_dev_template_from_real_output() {
+        assert_eq!(
+            parse_dev_alias(REAL_OUTPUT).as_deref(),
+            Some("pnpm --filter web dev -- --port {{ branch | hash_port }}")
+        );
+    }
+
+    /// `dev` is not always first, and `url`'s template must not be mistaken for it.
+    #[test]
+    fn picks_dev_rather_than_whichever_alias_comes_first() {
+        let reordered = "\
+○ Alias url (project):
+  echo http://localhost:{{ branch | hash_port }}
+○ Alias dev (user):
+  pnpm dev
+";
+        assert_eq!(parse_dev_alias(reordered).as_deref(), Some("pnpm dev"));
+    }
+
+    /// worktrunk-deck's own repo. No alias must read as "none" so the deck's setting is used.
+    #[test]
+    fn a_repo_without_aliases_has_no_dev_command() {
+        assert_eq!(parse_dev_alias("○ No aliases configured\n"), None);
+        assert_eq!(parse_dev_alias(""), None);
+    }
+
+    /// A name that merely starts with "dev" is a different alias.
+    #[test]
+    fn a_similarly_named_alias_is_not_the_dev_alias() {
+        let other = "○ Alias devtools (project):\n  echo nope\n";
+        assert_eq!(parse_dev_alias(other), None);
+    }
+
+    /// A header with nothing under it would otherwise yield an empty command, which reads as
+    /// "run nothing" — the exact silent failure this whole change is about.
+    #[test]
+    fn a_header_with_no_template_is_not_an_empty_command() {
+        assert_eq!(parse_dev_alias("○ Alias dev (project):\n"), None);
+        assert_eq!(parse_dev_alias("○ Alias dev (project):\n\n"), None);
+    }
 }
 
 /* ------------------------------------------------------------- list fan-out */
@@ -278,6 +411,14 @@ mod tests {
                 "{name} must be rejected"
             );
         }
+    }
+
+    /// The alias probe must stay pinned to `config alias show`. Widening it to a bare `config`
+    /// would put `approvals add` and `state` — both of which write — inside the allowlist.
+    #[test]
+    fn the_alias_probe_is_pinned_to_one_read_only_invocation() {
+        let argv = build_args(Path::new("/repo"), Subcommand::ConfigAliasShow, &[]);
+        assert_eq!(argv, ["-C", "/repo", "config", "alias", "show"]);
     }
 
     #[test]
