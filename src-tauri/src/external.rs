@@ -18,20 +18,19 @@ use crate::process::command;
 /// and flatten the dev command into a single shell line.
 pub fn run_external(
     worktree_path: &str,
-    dev_command: Option<&[String]>,
+    dev_command: Option<&str>,
     preferred: Option<&str>,
-) -> DeckResult<()> {
+) -> DeckResult<Option<String>> {
     let dir = Path::new(worktree_path);
     if !dir.is_dir() {
         return Err(DeckError::Io(format!("{worktree_path} is not a directory")));
     }
 
-    let joined = dev_command.map(join_command);
-    crate::terminals::run(preferred, worktree_path, joined.as_deref())
+    crate::terminals::run(preferred, worktree_path, dev_command)
 }
 
 /// Quotes each argument so a dev command with spaces survives the trip through a shell.
-fn join_command(argv: &[String]) -> String {
+pub fn join_command(argv: &[String]) -> String {
     argv.iter()
         .map(|a| {
             if a.contains(' ') || a.contains('"') {

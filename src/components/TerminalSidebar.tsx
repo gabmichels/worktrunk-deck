@@ -8,6 +8,7 @@
  */
 import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +48,16 @@ export interface TerminalSession {
   kind: "shell" | "dev" | "task";
   exited: boolean;
   exitCode: number | null;
+}
+
+/**
+ * Says so when the terminal chosen in Settings could not be used.
+ *
+ * Not an error — the command did run — but silently opening a terminal the user did not pick
+ * looks like a bug, so it gets a warning rather than nothing.
+ */
+function notifyFallback(note: string | null) {
+  if (note) toast.warning("Used a different terminal", { description: note });
 }
 
 function basename(path: string): string {
@@ -150,7 +161,10 @@ export function useTerminalSessions() {
 
       if (cmdOverride && cmdOverride.length > 0) {
         // Answered the prompt: a one-off, so it gets the worktree root and no alias lookup.
-        if (external) return runExternal(w.repoPath, w.path, cmdOverride);
+        if (external) {
+          notifyFallback(await runExternal(w.path, cmdOverride.join(" ")));
+          return;
+        }
         await openSession(w, "dev", cmdOverride);
         return;
       }
@@ -162,7 +176,7 @@ export function useTerminalSessions() {
         return;
       }
       if (external) {
-        await runExternal(w.repoPath, w.path, plan.command);
+        notifyFallback(await runExternal(plan.cwd, plan.commandLine));
         return;
       }
       await openSession(w, "dev", plan.argv, plan.cwd);

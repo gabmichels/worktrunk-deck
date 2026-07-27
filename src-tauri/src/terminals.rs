@@ -61,7 +61,11 @@ pub fn list() -> Vec<TerminalChoice> {
 /// Opens `cwd` in a terminal, running `dev` in it if given.
 ///
 /// `preferred` is a catalogue id, an executable path, or `None` for "whatever is installed".
-pub fn run(preferred: Option<&str>, cwd: &str, dev: Option<&str>) -> DeckResult<()> {
+///
+/// `Ok(Some(note))` means the selected terminal could not be used and another one was. That was
+/// previously silent, which reads as a bug: you pick Warp, press "Run dev", and Windows Terminal
+/// opens with no explanation.
+pub fn run(preferred: Option<&str>, cwd: &str, dev: Option<&str>) -> DeckResult<Option<String>> {
     let preferred = preferred.map(str::trim).filter(|p| !p.is_empty());
 
     if let Some(id) = preferred {
@@ -76,31 +80,39 @@ pub fn run(preferred: Option<&str>, cwd: &str, dev: Option<&str>) -> DeckResult<
             // falling through to the default would silently ignore the user's choice, so only
             // the *command* falls back, and only when there is one.
             if dev.is_some() && !entry.takes_command {
-                return first_available(cwd, dev).map_err(|_| {
+                let used = first_available(cwd, dev).map_err(|_| {
                     DeckError::Io(format!(
                         "{} cannot be given a command to run, and no other terminal was found",
                         entry.label
                     ))
-                });
+                })?;
+                return Ok(Some(format!(
+                    "{} cannot be handed a command to run, so {used} was used instead.",
+                    entry.label
+                )));
             }
-            return platform::launch(entry, &path, cwd, dev);
+            platform::launch(entry, &path, cwd, dev)?;
+            return Ok(None);
         }
         // Not in the catalogue: an executable the user named themselves. Most terminals start
         // in the directory they inherit, which is the one portable thing we can rely on.
-        return custom(id, cwd);
+        custom(id, cwd)?;
+        return Ok(None);
     }
 
-    first_available(cwd, dev)
+    first_available(cwd, dev)?;
+    Ok(None)
 }
 
-fn first_available(cwd: &str, dev: Option<&str>) -> DeckResult<()> {
+/// Launches the first installed terminal that can do the job, returning its label.
+fn first_available(cwd: &str, dev: Option<&str>) -> DeckResult<String> {
     for entry in platform::ENTRIES {
         if dev.is_some() && !entry.takes_command {
             continue;
         }
         if let Some(path) = platform::locate(entry.id) {
             if platform::launch(entry, &path, cwd, dev).is_ok() {
-                return Ok(());
+                return Ok(entry.label.to_string());
             }
         }
     }
@@ -206,11 +218,14 @@ mod platform {
 
         match entry.id {
             "wt" => {
-                c.args(["-d", cwd]);
+                // `-w 0 new-tab` reuses the most recently used window instead of opening a new
+                // one — a dev server per worktree otherwise litters the desktop with windows.
+                // If none is open, Windows Terminal creates one, so this is safe either way.
+                c.args(["-w", "0", "new-tab", "-d", cwd]);
                 if let Some(dev) = dev {
                     // -NoExit keeps the pane open after the command exits, so a dev server that
                     // crashes on startup leaves its error on screen instead of vanishing.
-                    c.args(["powershell.exe", "-NoExit", "-Command", dev]);
+                    c.args([&shell_for_command(), "-NoExit", "-Command", dev]);
                 }
             }
             "pwsh" | "powershell" => {
@@ -238,13 +253,13 @@ mod platform {
             "wezterm" => {
                 c.args(["start", "--cwd", cwd]);
                 if let Some(dev) = dev {
-                    c.args(["--", "powershell.exe", "-NoExit", "-Command", dev]);
+                    c.args(["--", &shell_for_command(), "-NoExit", "-Command", dev]);
                 }
             }
             "alacritty" => {
                 c.args(["--working-directory", cwd]);
                 if let Some(dev) = dev {
-                    c.args(["-e", "powershell.exe", "-NoExit", "-Command", dev]);
+                    c.args(["-e", &shell_for_command(), "-NoExit", "-Command", dev]);
                 }
             }
             _ => {}
@@ -260,14 +275,29 @@ mod platform {
         s.replace('\'', "''")
     }
 
-    /// Opens Warp at `cwd` through `warp://action/new_window`.
+    /// The PowerShell to run a command in, preferring **7** over Windows PowerShell 5.1.
+    ///
+    /// They do not share a profile: 7 reads `Documents\PowerShell\`, 5.1 reads
+    /// `Documents\WindowsPowerShell\`. Tooling that installs a shell wrapper — worktrunk's
+    /// alias integration among it — usually lands in 7 only, so hardcoding `powershell.exe`
+    /// silently ran commands in a shell where the user's setup did not exist.
+    fn shell_for_command() -> String {
+        which("pwsh.exe")
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "powershell.exe".to_string())
+    }
+
+    /// Opens Warp at `cwd` through `warp://action/new_tab`.
+    ///
+    /// A tab rather than a window, so opening several worktrees adds tabs to the Warp you
+    /// already have open instead of stacking up windows. Warp opens a window if none exists.
     ///
     /// The path must be a `file:///` URL, not a bare Windows path: Warp parses the parameter as
     /// a URL, so `C:\...` is read as a scheme called `c`, the parse fails, and the directory is
     /// silently dropped in favour of the home folder — the same bug Warp's own Explorer
     /// integration has (warp#9844).
     fn open_warp(cwd: &str) -> DeckResult<()> {
-        let uri = format!("warp://action/new_window?path={}", file_url(cwd));
+        let uri = format!("warp://action/new_tab?path={}", file_url(cwd));
         // `start` is a cmd builtin, so cmd is the launcher — and it must stay invisible, which
         // is why this is `command` and not `windowed_command`. The empty "" is start's title
         // argument; without it a quoted URL would be taken as the window title.
@@ -465,7 +495,7 @@ mod platform {
         // xdg-open hands it to whatever registered the `warp://` handler.
         if entry.id == "warp" {
             return windowed_command("xdg-open")
-                .arg(format!("warp://action/new_window?path={}", file_url(cwd)))
+                .arg(format!("warp://action/new_tab?path={}", file_url(cwd)))
                 .spawn()
                 .map(|_| ())
                 .map_err(|e| DeckError::Io(format!("could not open Warp: {e}")));

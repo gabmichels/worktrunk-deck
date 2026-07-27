@@ -158,9 +158,8 @@ function Deck() {
   // would otherwise look like the click did nothing.
   const openTerminal = (w: Worktree) => {
     if (useExternalTerminal) {
-      void track("Opening terminal", () => ipc.runExternal(w.repoPath, w.path)).catch(
-        (e: unknown) =>
-          toast.error("Could not open your terminal", { description: messageOf(e) }),
+      void track("Opening terminal", () => ipc.runExternal(w.path)).catch((e: unknown) =>
+        toast.error("Could not open your terminal", { description: messageOf(e) }),
       );
       return;
     }

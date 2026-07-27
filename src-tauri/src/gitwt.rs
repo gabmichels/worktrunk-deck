@@ -31,6 +31,8 @@ pub enum Subcommand {
     /// `approvals add`, `state` and `create`, which write; this one names the whole read-only
     /// invocation so no caller can widen it by passing different args (see [`Self::fixed_args`]).
     ConfigAliasShow,
+    /// `config alias dry-run` — expands an alias's template without running it.
+    ConfigAliasDryRun,
 }
 
 impl Subcommand {
@@ -40,7 +42,7 @@ impl Subcommand {
             Subcommand::Switch => "switch",
             Subcommand::Merge => "merge",
             Subcommand::Remove => "remove",
-            Subcommand::ConfigAliasShow => "config",
+            Subcommand::ConfigAliasShow | Subcommand::ConfigAliasDryRun => "config",
         }
     }
 
@@ -49,6 +51,7 @@ impl Subcommand {
     fn fixed_args(self) -> &'static [&'static str] {
         match self {
             Subcommand::ConfigAliasShow => &["alias", "show"],
+            Subcommand::ConfigAliasDryRun => &["alias", "dry-run"],
             _ => &[],
         }
     }
@@ -190,15 +193,49 @@ fn parse_dev_alias(stdout: &str) -> Option<String> {
     None
 }
 
-/// The argv that runs the repo's `dev` alias in `worktree`.
+/// The `dev` alias **expanded for this worktree** — the real command line, ready to run.
 ///
-/// `dev` is an *alias*, not a subcommand: `git-wt.exe dev` exits with "unrecognized subcommand".
-/// The shell wrapper worktrunk installs is what turns it into the expanded command, so this has
-/// to be run through a shell that loads the user's profile — which is exactly what an interactive
-/// terminal does, and why this returns argv for a terminal rather than something to spawn
-/// directly.
-pub fn dev_argv() -> Vec<String> {
-    vec!["git-wt".to_string(), "dev".to_string()]
+/// Running `git-wt dev` instead would be the obvious move and is a trap. `dev` is an alias, not
+/// a subcommand: the binary answers "unrecognized subcommand 'dev'", and only the wrapper
+/// worktrunk installs in the shell profile expands it. That wrapper is not in every shell —
+/// on Windows it lives in the PowerShell 7 profile, so `powershell.exe` (5.1), `cmd.exe` and
+/// Git Bash all fail — which makes "which shell did we happen to launch?" load-bearing.
+///
+/// Asking worktrunk to expand the template removes the shell from the equation entirely: the
+/// result runs anywhere. It must be expanded against the **worktree**, not the repo, because
+/// `hash_port` is derived from the branch — `main` expands to 12107 where
+/// `fix/coach-memory-write-loss` expands to 10766.
+pub async fn dev_command_line(bin: &Path, worktree: &Path) -> Option<String> {
+    let result = run(
+        bin,
+        worktree,
+        Subcommand::ConfigAliasDryRun,
+        &["dev".to_string()],
+    )
+    .await
+    .ok()?;
+    if !result.ok {
+        return None;
+    }
+    parse_dry_run(&result.stdout)
+}
+
+/// Pulls the expanded command out of `git-wt config alias dry-run dev`:
+///
+/// ```text
+/// ○ Alias dev (project) would run:
+///   pnpm --filter web dev -- --port 12107
+/// ```
+fn parse_dry_run(stdout: &str) -> Option<String> {
+    let mut lines = stdout.lines();
+    while let Some(line) = lines.next() {
+        if !line.contains("would run") {
+            continue;
+        }
+        let command = lines.next()?.trim();
+        return (!command.is_empty()).then(|| command.to_string());
+    }
+    None
 }
 
 #[cfg(test)]
@@ -253,6 +290,37 @@ mod alias_tests {
     fn a_header_with_no_template_is_not_an_empty_command() {
         assert_eq!(parse_dev_alias("○ Alias dev (project):\n"), None);
         assert_eq!(parse_dev_alias("○ Alias dev (project):\n\n"), None);
+    }
+
+    use super::parse_dry_run;
+
+    /// Verbatim from `git-wt v0.60.0 -C <worktree> config alias dry-run dev`.
+    #[test]
+    fn reads_the_expanded_command_from_real_dry_run_output() {
+        let out = "○ Alias dev (project) would run:\n  pnpm --filter web dev -- --port 12107\n";
+        assert_eq!(
+            parse_dry_run(out).as_deref(),
+            Some("pnpm --filter web dev -- --port 12107")
+        );
+    }
+
+    /// The port comes from the branch, so two worktrees must not expand to the same thing.
+    /// Recorded from dryll's `main` (12107) and `fix/coach-memory-write-loss` (10766).
+    #[test]
+    fn the_expansion_carries_the_worktrees_own_port() {
+        let main = "○ Alias dev (project) would run:\n  pnpm --filter web exec next dev -p 12107\n";
+        let branch =
+            "○ Alias dev (project) would run:\n  pnpm --filter web exec next dev -p 10766\n";
+        assert_ne!(parse_dry_run(main), parse_dry_run(branch));
+        assert!(parse_dry_run(branch).unwrap().ends_with("10766"));
+    }
+
+    /// A repo with no `dev` alias makes dry-run fail; nothing parseable must reach the terminal.
+    #[test]
+    fn an_unrecognized_alias_yields_nothing() {
+        assert_eq!(parse_dry_run("error: unrecognized alias 'dev'\n"), None);
+        assert_eq!(parse_dry_run(""), None);
+        assert_eq!(parse_dry_run("○ Alias dev (project) would run:\n"), None);
     }
 }
 

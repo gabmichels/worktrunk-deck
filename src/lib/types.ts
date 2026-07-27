@@ -140,9 +140,14 @@ export interface DevPlan {
    * setting, for repos with no alias. `none` — neither, so the user is asked.
    */
   source: "alias" | "config" | "none";
-  /** As a person would type it. For the OS terminal, which runs it through a shell already. */
-  command: string[];
-  /** The same command as PTY argv — shell-wrapped for an alias, which only the shell resolves. */
+  /**
+   * The command line to run, in shell syntax. Empty when `source` is `none`.
+   *
+   * An expanded alias arrives from worktrunk as one already-quoted string, so it stays a line
+   * rather than being split into argv and re-joined, which would only lose quoting.
+   */
+  commandLine: string;
+  /** The same command as PTY argv — the line handed to a shell, which is what parses it. */
   argv: string[];
   cwd: string;
   /** The alias template, unexpanded. Display only; null unless `source` is `alias`. */

@@ -229,7 +229,7 @@ export function openInFileManager(path: string): Promise<void> {
 
 const DevPlanSchema = z.object({
   source: z.enum(["alias", "config", "none"]),
-  command: z.array(z.string()),
+  commandLine: z.string(),
   argv: z.array(z.string()),
   cwd: z.string(),
   alias: z.string().nullable(),
@@ -249,17 +249,17 @@ export async function devAlias(repoPath: string): Promise<string | null> {
 }
 
 /**
- * Opens the OS terminal at a worktree instead of the integrated one (REQ-8).
+ * Opens the OS terminal at `cwd` instead of the integrated one (REQ-8).
  *
  * `devCommand` is what separates "Open terminal" from "Run dev": omit it for a plain shell,
- * pass one to start the dev server. The backend does not look it up — see `run_external`.
+ * pass a command line to start the dev server. The backend does not look it up — see
+ * `run_external`.
+ *
+ * Resolves to a note when the terminal chosen in Settings could not be used and another one
+ * was — worth telling the user, who otherwise just sees the wrong terminal open.
  */
-export function runExternal(
-  repoPath: string,
-  worktreePath: string,
-  devCommand?: string[],
-): Promise<void> {
-  return invoke("run_external", { repoPath, worktreePath, devCommand });
+export async function runExternal(cwd: string, devCommand?: string): Promise<string | null> {
+  return z.string().nullable().parse(await invoke("run_external", { cwd, devCommand }));
 }
 
 const TerminalChoiceSchema = z.object({

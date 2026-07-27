@@ -210,11 +210,12 @@ pub struct DevPlan {
     /// `"alias"` — worktrunk's `dev` alias; `"config"` — the deck's own per-repo setting;
     /// `"none"` — neither, so the caller must ask.
     pub source: &'static str,
-    /// The command as a person would type it. Handed to the OS terminal, which runs it through
-    /// a shell already.
-    pub command: Vec<String>,
-    /// The same command as PTY argv. For an alias this is shell-wrapped, because `dev` only
-    /// exists inside worktrunk's shell wrapper — see [`pty::shell_argv`].
+    /// The command line to run, in shell syntax. Empty when `source == "none"`.
+    ///
+    /// A *line*, not argv: an expanded alias arrives from worktrunk as one already-quoted
+    /// string, and splitting then re-joining it would only lose quoting.
+    pub command_line: String,
+    /// The same command as PTY argv — the line handed to a shell, which is what parses it.
     pub argv: Vec<String>,
     pub cwd: String,
     /// The alias template, unexpanded, for Settings to show. `None` unless `source == "alias"`.
@@ -235,33 +236,40 @@ pub async fn dev_plan(
     worktree_path: String,
 ) -> DeckResult<DevPlan> {
     let cfg = config::load(&app)?;
+    let worktree = std::path::PathBuf::from(&worktree_path);
 
     if let Ok(bin) = config::locate_gitwt(&cfg) {
-        if let Some(alias) = gitwt::dev_alias(&bin, std::path::Path::new(&repo_path)).await {
-            let command = gitwt::dev_argv();
+        // Probed on the **worktree**, not the repo. `.config/wt.toml` is versioned content: a
+        // branch created before the alias was committed genuinely does not have it, and
+        // claiming otherwise would hand the terminal a command that cannot run there.
+        if let Some(command_line) = gitwt::dev_command_line(&bin, &worktree).await {
             return Ok(DevPlan {
                 source: "alias",
-                argv: pty::shell_argv(&command.join(" ")),
-                command,
+                argv: pty::shell_argv(&command_line),
+                command_line,
                 // The alias runs from the worktree root; where the server actually lives is the
                 // alias's own business (`pnpm --filter web`, a `-C`, a `cd` — worktrunk's call).
                 cwd: worktree_path,
-                alias: Some(alias),
+                alias: gitwt::dev_alias(&bin, &worktree).await,
             });
         }
     }
 
     match cfg.dev_for(&repo_path) {
-        Some(dev) if !dev.command.is_empty() => Ok(DevPlan {
-            source: "config",
-            argv: dev.command.clone(),
-            command: dev.command.clone(),
-            cwd: config::resolve_dev_cwd(&worktree_path, dev.cwd.as_deref()),
-            alias: None,
-        }),
+        Some(dev) if !dev.command.is_empty() => {
+            let command_line = external::join_command(&dev.command);
+            Ok(DevPlan {
+                source: "config",
+                // Spawned directly: this one is argv already, so it needs no shell to parse it.
+                argv: dev.command.clone(),
+                command_line,
+                cwd: config::resolve_dev_cwd(&worktree_path, dev.cwd.as_deref()),
+                alias: None,
+            })
+        }
         _ => Ok(DevPlan {
             source: "none",
-            command: Vec::new(),
+            command_line: String::new(),
             argv: Vec::new(),
             cwd: worktree_path,
             alias: None,
@@ -269,7 +277,7 @@ pub async fn dev_plan(
     }
 }
 
-/// The `dev` alias template for a repo, or `None`. Settings uses it to show what "Run dev" will
+/// The `dev` alias template for a path, or `None`. Settings uses it to show what "Run dev" will
 /// run, and to explain why the deck's own command field is not being used.
 #[tauri::command]
 pub async fn dev_alias(app: AppHandle, repo_path: String) -> DeckResult<Option<String>> {
@@ -280,40 +288,25 @@ pub async fn dev_alias(app: AppHandle, repo_path: String) -> DeckResult<Option<S
     Ok(gitwt::dev_alias(&bin, std::path::Path::new(&repo_path)).await)
 }
 
-/// Opens the OS terminal at a worktree instead of the integrated one, running `dev_command` in
-/// it when one is given (REQ-8).
+/// Opens the OS terminal at `cwd`, running `dev_command` in it when one is given (REQ-8).
 ///
-/// The command is passed in rather than looked up here. The caller is the only one that knows
-/// whether this is "Open terminal" or "Run dev", and it may carry a one-off command the user
-/// just typed into the prompt. Reading it from the config instead meant an external "Open
-/// terminal" silently started the dev server, and an external "Run dev" on an unconfigured repo
-/// silently opened a bare shell — the click appeared to do nothing.
+/// Both the command and the directory are passed in rather than looked up here. The caller is
+/// the only one that knows whether this is "Open terminal" or "Run dev", and for a dev run it
+/// already holds the resolved plan. Reading them from the config instead meant an external
+/// "Open terminal" silently started the dev server, and an external "Run dev" on an
+/// unconfigured repo silently opened a bare shell — the click appeared to do nothing.
+///
+/// Returns a note when the selected terminal could not be used, so the caller can say so
+/// instead of leaving the user staring at a terminal they did not choose.
 #[tauri::command]
 pub fn run_external(
     app: AppHandle,
-    repo_path: String,
-    worktree_path: String,
-    dev_command: Option<Vec<String>>,
-) -> DeckResult<()> {
+    cwd: String,
+    dev_command: Option<String>,
+) -> DeckResult<Option<String>> {
     let cfg = config::load(&app)?;
-    let dev = dev_command.filter(|c| !c.is_empty());
-
-    // Honour the configured working directory here too, so "Run externally" and the integrated
-    // terminal start the server in the same place — a monorepo's dev command lives in a
-    // subdirectory of the worktree, not at its root. Only for a dev run: opening a terminal is
-    // about the worktree itself.
-    let dir = match dev {
-        Some(_) => {
-            let configured = cfg.dev_for(&repo_path);
-            config::resolve_dev_cwd(
-                &worktree_path,
-                configured.as_ref().and_then(|d| d.cwd.as_deref()),
-            )
-        }
-        None => worktree_path,
-    };
-
-    external::run_external(&dir, dev.as_deref(), cfg.external_terminal.as_deref())
+    let dev = dev_command.filter(|c| !c.trim().is_empty());
+    external::run_external(&cwd, dev.as_deref(), cfg.external_terminal.as_deref())
 }
 
 /* --------------------------------------------------------------------- PTY */
